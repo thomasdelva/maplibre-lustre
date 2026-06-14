@@ -1,0 +1,63 @@
+name: Deploy demo to Pages
+
+on:
+  push:
+    branches:
+      - main
+      # Build-only verification on the development branch (deploy is gated to main).
+      - "claude/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Allow one concurrent deployment; newer pushes cancel in-progress ones.
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: "27"
+          gleam-version: "1.17.0"
+
+      - uses: oven-sh/setup-bun@v2
+
+      - name: Compile the demo to JavaScript
+        working-directory: demo
+        run: |
+          gleam deps download
+          gleam build --target javascript
+
+      - name: Bundle the demo
+        working-directory: demo
+        run: |
+          mkdir -p ../_site
+          # Lustre apps don't auto-run; the entry imports and calls `main`.
+          printf "import { main } from './build/dev/javascript/demo/demo.mjs';\nmain();\n" > _entry.mjs
+          bun build ./_entry.mjs --minify --outfile ../_site/demo.mjs
+          cp index.html ../_site/index.html
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    # Only publish from main. Pushes to the development branch just verify the build.
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

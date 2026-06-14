@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>maplibre-lustre demo</title>
+
+    <!-- MapLibre GL JS + CSS, pinned. The CSS is required, or markers and
+         controls render with broken positioning. Loaded from a CDN; the
+         wrapper reads window.maplibregl. -->
+    <link
+      href="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.css"
+      rel="stylesheet"
+    />
+    <script src="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.js"></script>
+
+    <style>
+      html,
+      body,
+      #app {
+        height: 100%;
+        margin: 0;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app"></div>
+    <!-- RELATIVE path: GitHub Pages serves this site under /maplibre-lustre/,
+         not the domain root. The filename must match the lustre/dev build
+         output (snake_case of the entry module, i.e. demo.mjs). -->
+    <script type="module" src="./demo.mjs"></script>
+  </body>
+</html>
