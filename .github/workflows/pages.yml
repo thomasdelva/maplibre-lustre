@@ -1,10 +1,13 @@
 name: Deploy demo to Pages
 
 on:
+  # Deploy on pushes to main, on PRs carrying the `test-deploy` label (enforced
+  # by the build job's `if` below), and on manual dispatch.
   push:
-    # Build on every branch so any push redeploys the single live site.
     branches:
-      - "**"
+      - main
+  pull_request:
+    types: [opened, reopened, synchronize, labeled]
   workflow_dispatch:
 
 # Permissions the official Pages deployment needs.
@@ -23,6 +26,11 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    # push (main) and workflow_dispatch always run; a pull_request only deploys
+    # when it carries the `test-deploy` label.
+    if: >-
+      github.event_name != 'pull_request' ||
+      contains(github.event.pull_request.labels.*.name, 'test-deploy')
     steps:
       - uses: actions/checkout@v4
 
@@ -42,7 +50,10 @@ jobs:
       - name: Bundle the demo
         working-directory: demo
         env:
-          DEPLOY_BRANCH: ${{ github.ref_name }}
+          # On pull_request, github.ref_name is "<n>/merge"; head_ref is the
+          # actual source branch. On push/dispatch head_ref is empty, so fall
+          # back to ref_name.
+          DEPLOY_BRANCH: ${{ github.head_ref || github.ref_name }}
         run: |
           mkdir -p ../_site
           # Lustre apps don't auto-run; the entry imports and calls `main`.
