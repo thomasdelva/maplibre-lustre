@@ -1,12 +1,14 @@
 //// A minimal [Lustre](https://lustre.build) wrapper around
 //// [MapLibre GL JS](https://maplibre.org/maplibre-gl-js/docs/).
 ////
-//// The surface is intentionally tiny. It covers exactly four things:
+//// The surface is intentionally tiny. It covers exactly five things:
 ////
 ////   1. Render a basemap into a container (no API key required).
 ////   2. Show markers whose content is arbitrary HTML/SVG.
 ////   3. Emit a message when a marker is tapped.
-////   4. Frame a set of points with `fit_bounds`.
+////   4. Emit a message (with the clicked `LngLat`) when the map background is
+////      tapped — use it to place new markers, or to clear a selection.
+////   5. Frame a set of points with `fit_bounds`.
 ////
 //// The imperative, stateful MapLibre `Map` instance never lives in your
 //// Lustre `Model`. It is held in a registry inside the FFI module and is
@@ -101,6 +103,28 @@ pub fn set_markers(
   })
 }
 
+/// Register a handler for clicks on the map *background* — that is, anywhere
+/// that is not a marker. The handler receives the clicked [`LngLat`](#LngLat).
+///
+/// This is the primitive behind two common interactions:
+///
+///   - **Placing a new marker**: append a [`Marker`](#Marker) at the clicked
+///     position to your model and re-run [`set_markers`](#set_markers).
+///   - **Clearing a selection**: tapping empty space deselects whatever was
+///     selected.
+///
+/// Tapping a marker fires its own [`set_markers`](#set_markers) `on_click`
+/// handler and does *not* fire this one, so the two never collide.
+///
+/// Registering again replaces the previous handler (it does not stack). Like
+/// [`set_markers`](#set_markers), call this once the map exists (in response to
+/// [`init`](#init)'s `on_ready` message, or later); if the map does not exist
+/// yet this is a no-op.
+pub fn on_map_click(id: String, handler: fn(LngLat) -> msg) -> Effect(msg) {
+  use dispatch <- effect.from
+  do_on_map_click(id, fn(lng, lat) { dispatch(handler(LngLat(lng:, lat:))) })
+}
+
 /// Frame a bounding box, animating the camera so the box (plus `padding`
 /// pixels on every side) is visible. Use this when the set of points you want
 /// in view changes.
@@ -146,6 +170,9 @@ fn do_set_markers(
   markers_json: String,
   on_click: fn(String) -> Nil,
 ) -> Nil
+
+@external(javascript, "./maplibre_ffi.mjs", "onMapClick")
+fn do_on_map_click(id: String, handler: fn(Float, Float) -> Nil) -> Nil
 
 @external(javascript, "./maplibre_ffi.mjs", "fitBounds")
 fn do_fit_bounds(
