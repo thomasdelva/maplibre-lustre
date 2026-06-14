@@ -1,0 +1,43 @@
+name: CI
+
+# Build-verify the library and the demo on every push and PR. The local
+# Claude Code containers can't reach repo.hex.pm (see CLAUDE.md), so CI is the
+# canonical place the Gleam build is checked.
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+# Supersede older in-flight runs for the same ref.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: "27"
+          gleam-version: "1.17.0"
+
+      - name: Build the library (JavaScript target)
+        run: |
+          gleam deps download
+          gleam build --target javascript
+
+      - name: Build the demo (JavaScript target)
+        working-directory: demo
+        run: |
+          gleam deps download
+          gleam build --target javascript
+
+      - name: Check formatting (library + demo)
+        if: ${{ always() }}
+        run: gleam format --check src demo/src
