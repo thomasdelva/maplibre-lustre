@@ -123,11 +123,13 @@ by
 
 The demo is rebuilt and deployed (via `actions/deploy-pages`) to the single live
 site at `https://thomasdelva.github.io/maplibre-lustre/` on three triggers:
-pushes to `main`, pull requests labelled **`test-deploy`**, and manual
-`workflow_dispatch`. Each deploy overwrites the previous one, so the live page
-reflects whichever ran most recently — label a PR `test-deploy` to preview it on
-a phone before merging. A small badge in the bottom-left corner shows which
-branch produced the current deploy.
+pushes to `main`, manual `workflow_dispatch`, and pull requests labelled
+**`test-deploy`**. The PR trigger is deliberately a personal playground — it only
+fires for label/pushes by the repo owner on a branch in this repo (not forks) —
+so labelling your own PR `test-deploy` publishes it to the live URL to preview on
+a phone before merging. Each deploy overwrites the previous one (the latest run
+wins; rapid pushes cancel older in-flight ones), and a small badge in the
+bottom-left corner shows which branch produced the current deploy.
 
 This requires two repo settings: Pages **Source** = "GitHub Actions", and the
 `github-pages` environment configured to allow deploys from **all** branches

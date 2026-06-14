@@ -16,21 +16,28 @@ permissions:
   pages: write
   id-token: write
 
-# One live site, so serialise deploys. cancel-in-progress is false (the Pages
-# recommendation) so an in-flight deployment is allowed to finish rather than
-# being interrupted; queued runs then deploy in order, last one winning.
+# One live site. Each new run supersedes any older one still in flight
+# (cancel-in-progress), so rapid pushes from a phone don't queue up — the latest
+# wins and shows up fastest.
 concurrency:
   group: pages
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    # push (main) and workflow_dispatch always run; a pull_request only deploys
-    # when it carries the `test-deploy` label.
+    # push (main) and workflow_dispatch always run. A pull_request deploys only
+    # when ALL of these hold, which keeps the live site a personal playground:
+    #   - it carries the `test-deploy` label,
+    #   - the branch lives in this repo, not a fork (fork PRs get a read-only
+    #     token and can't deploy anyway, and we don't want to publish their
+    #     code to our Pages origin), and
+    #   - the person who triggered it is the repo owner.
     if: >-
       github.event_name != 'pull_request' ||
-      contains(github.event.pull_request.labels.*.name, 'test-deploy')
+      (github.event.pull_request.head.repo.full_name == github.repository
+        && github.actor == github.repository_owner
+        && contains(github.event.pull_request.labels.*.name, 'test-deploy'))
     steps:
       - uses: actions/checkout@v4
 
