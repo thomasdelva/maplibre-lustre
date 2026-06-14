@@ -2,24 +2,23 @@ name: Deploy demo to Pages
 
 on:
   push:
+    # Build on every branch so any push redeploys the single live site.
     branches:
-      # Build every branch so any push redeploys the demo, but never the
-      # publishing branch itself (peaceiris pushes there, which would otherwise
-      # trigger an endless loop).
       - "**"
-      - "!gh-pages"
   workflow_dispatch:
 
-# peaceiris/actions-gh-pages pushes the built site to the `gh-pages` branch
-# using the default token, so it needs write access to repo contents.
+# Permissions the official Pages deployment needs.
 permissions:
-  contents: write
+  contents: read
+  pages: write
+  id-token: write
 
-# A single live site, so serialise deploys across all branches: never run two
-# at once, and let a newer run supersede an in-flight older one.
+# One live site, so serialise deploys. cancel-in-progress is false (the Pages
+# recommendation) so an in-flight deployment is allowed to finish rather than
+# being interrupted; queued runs then deploy in order, last one winning.
 concurrency:
   group: pages
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   build:
@@ -58,12 +57,18 @@ jobs:
           branch=${branch//\"/\\\"}
           printf 'window.DEPLOY_BRANCH = "%s";\n' "$branch" > ../_site/deploy.js
 
-      # force_orphan replaces the whole gh-pages branch with this build, so each
-      # run overwrites the previous deploy (whatever branch produced it). The
-      # live site always reflects the most recently pushed branch.
-      - name: Publish to gh-pages
-        uses: peaceiris/actions-gh-pages@v4
+      - uses: actions/upload-pages-artifact@v3
         with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./_site
-          force_orphan: true
+          path: _site
+
+  # A single deployment that each run overwrites, so the live site always
+  # reflects the most recently pushed branch.
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

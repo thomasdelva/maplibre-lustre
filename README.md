@@ -121,12 +121,17 @@ by
 
 ### Deploys
 
-Every push, on **any** branch, rebuilds the demo and overwrites the single live
-site at `https://thomasdelva.github.io/maplibre-lustre/`, so the page always
-reflects the most recently pushed branch — handy for reviewing a branch on a
-phone before merging. A small badge in the bottom-left corner shows which branch
-produced the current deploy. (This requires the repo's Pages **Source** to be
-set to "Deploy from a branch" → `gh-pages` → `/` root.)
+Every push, on **any** branch, rebuilds the demo and deploys it (via
+`actions/deploy-pages`) to the single live site at
+`https://thomasdelva.github.io/maplibre-lustre/`, overwriting the previous
+deploy — so the page always reflects the most recently pushed branch, handy for
+reviewing a branch on a phone before merging. A small badge in the bottom-left
+corner shows which branch produced the current deploy.
+
+This requires two repo settings: Pages **Source** = "GitHub Actions", and the
+`github-pages` environment configured to allow deploys from **all** branches
+(Settings → Environments → `github-pages` → Deployment branches), not just the
+default one.
 
 To run it locally:
 
