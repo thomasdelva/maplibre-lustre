@@ -58,8 +58,15 @@ pub fn container(id: String, attrs: List(Attribute(msg))) -> Element(msg) {
 /// Create the map. Run this once (e.g. from your app's `init`). It uses
 /// `effect.after_paint` internally so the container element is guaranteed to
 /// exist in the DOM before `new maplibregl.Map(...)` runs.
-pub fn init(id: String, config: Config) -> Effect(msg) {
-  use _dispatch, _root <- effect.after_paint
+///
+/// Once the map has been created, `on_ready` is dispatched to your `update`
+/// loop. Fire [`set_markers`](#set_markers)/[`fit_bounds`](#fit_bounds) in
+/// response to that message — the map is guaranteed to exist by then, so you
+/// never have to reason about effect ordering. (Note: `on_ready` fires when the
+/// map object exists, which is enough for markers and bounds; it does not wait
+/// for the style/tiles to finish loading.)
+pub fn init(id: String, config: Config, on_ready: msg) -> Effect(msg) {
+  use dispatch, _root <- effect.after_paint
   do_init(
     id,
     config.style_url,
@@ -67,6 +74,7 @@ pub fn init(id: String, config: Config) -> Effect(msg) {
     config.center.lat,
     config.zoom,
   )
+  dispatch(on_ready)
 }
 
 /// Replace all markers on the map.
@@ -79,16 +87,15 @@ pub fn init(id: String, config: Config) -> Effect(msg) {
 /// loop. The markers cross the FFI boundary as a JSON string rather than as a
 /// Gleam list (a Gleam list is a linked list, not a JS array).
 ///
-/// Runs in `effect.after_paint`. You can batch this alongside [`init`](#init)
-/// in any order: Lustre does not guarantee that a batched `init` runs first, so
-/// the FFI queues markers that arrive before the map exists and applies them as
-/// soon as `init` creates it.
+/// Call this only once the map exists — i.e. in response to [`init`](#init)'s
+/// `on_ready` message, or any time after. If the map does not exist yet this is
+/// a no-op.
 pub fn set_markers(
   id: String,
   markers: List(Marker),
   on_click: fn(String) -> msg,
 ) -> Effect(msg) {
-  use dispatch, _root <- effect.after_paint
+  use dispatch <- effect.from
   do_set_markers(id, encode_markers(markers), fn(marker_id) {
     dispatch(on_click(marker_id))
   })
@@ -98,16 +105,16 @@ pub fn set_markers(
 /// pixels on every side) is visible. Use this when the set of points you want
 /// in view changes.
 ///
-/// Runs in `effect.after_paint`, and like [`set_markers`](#set_markers) it is
-/// queued by the FFI if it arrives before [`init`](#init) has created the map,
-/// so batching order does not matter.
+/// Like [`set_markers`](#set_markers), call this once the map exists (in
+/// response to [`init`](#init)'s `on_ready` message, or later). If the map does
+/// not exist yet this is a no-op.
 pub fn fit_bounds(
   id: String,
   sw: LngLat,
   ne: LngLat,
   padding: Int,
 ) -> Effect(msg) {
-  use _dispatch, _root <- effect.after_paint
+  use _dispatch <- effect.from
   do_fit_bounds(id, sw.lng, sw.lat, ne.lng, ne.lat, padding)
 }
 

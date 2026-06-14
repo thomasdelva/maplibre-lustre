@@ -64,6 +64,7 @@ type Model {
 }
 
 type Msg {
+  MapReady
   MarkerClicked(id: String)
   FitAllClicked
 }
@@ -76,18 +77,14 @@ fn init(_args) -> #(Model, Effect(Msg)) {
       zoom: 12.5,
     )
 
-  // Order matters: create the map before placing markers on it.
-  let setup =
-    effect.batch([
-      maplibre.init(map_id, config),
-      maplibre.set_markers(map_id, markers(), MarkerClicked),
-    ])
-
-  #(Model(selected: None), setup)
+  // Just create the map; `MapReady` is dispatched once it exists, and we place
+  // the markers in response to it (see `update`).
+  #(Model(selected: None), maplibre.init(map_id, config, MapReady))
 }
 
 fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
   case msg {
+    MapReady -> #(model, maplibre.set_markers(map_id, markers(), MarkerClicked))
     MarkerClicked(id) -> #(Model(selected: Some(id)), effect.none())
     FitAllClicked -> {
       let #(sw, ne) = bounds(places)

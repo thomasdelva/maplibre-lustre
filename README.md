@@ -56,10 +56,14 @@ render with broken positioning):
 ## Usage
 
 ```gleam
-import lustre/effect
 import maplibre.{Config, LngLat, Marker}
 
 const map_id = "map"
+
+type Msg {
+  MapReady
+  MarkerClicked(String)
+}
 
 fn init(_args) {
   let config =
@@ -69,19 +73,21 @@ fn init(_args) {
       zoom: 12.5,
     )
 
-  let markers = [
-    Marker(id: "belem", position: LngLat(-9.2160, 38.6916), html: "<svg>…</svg>"),
-  ]
+  // Just create the map. `init` dispatches `MapReady` once it exists; place the
+  // markers in response to that, so you never reason about effect ordering.
+  #(Model(selected: None), maplibre.init(map_id, config, MapReady))
+}
 
-  // Order-independent: both run after paint, and the FFI queues markers that
-  // arrive before init has created the map, applying them once it does.
-  let setup =
-    effect.batch([
-      maplibre.init(map_id, config),
-      maplibre.set_markers(map_id, markers, MarkerClicked),
-    ])
-
-  #(Model(selected: None), setup)
+fn update(model, msg) {
+  case msg {
+    MapReady -> {
+      let markers = [
+        Marker(id: "belem", position: LngLat(-9.2160, 38.6916), html: "<svg>…</svg>"),
+      ]
+      #(model, maplibre.set_markers(map_id, markers, MarkerClicked))
+    }
+    MarkerClicked(id) -> #(Model(selected: Some(id)), effect.none())
+  }
 }
 
 fn view(_model) {
