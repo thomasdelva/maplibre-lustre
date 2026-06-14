@@ -1,16 +1,12 @@
-// Imperative MapLibre GL JS calls, kept on the JS side of the FFI boundary.
+// The `<maplibre-map>` custom element: the live, mutable MapLibre `Map` lives
+// here, never in the Gleam model. Lustre renders the element and sets two
+// string attributes — `config` (init-only) and `scene` (a JSON description of
+// the markers) — and the element reconciles the scene into the map, adding,
+// moving, and removing only the markers that changed.
 //
 // MapLibre is loaded by the host page via a CDN <script>, exposing the global
-// `window.maplibregl`. We read it lazily (inside the functions) so this module
+// `window.maplibregl`. We read it lazily (inside the element) so this module
 // can be imported before the CDN script has run.
-
-// containerId -> { map, markers: [] }
-//
-// The live, mutable map lives here, never in the Gleam model. Gleam effects
-// look it up by id and mutate it. Callers are expected to run `init` before
-// `setMarkers`/`fitBounds` for a given id (sequenced via the `on_ready`
-// message); if the map is missing those calls are no-ops.
-const registry = new Map();
 
 function maplibre() {
   const gl = globalThis.maplibregl;
@@ -23,70 +19,185 @@ function maplibre() {
   return gl;
 }
 
-export function init(id, styleUrl, lng, lat, zoom) {
-  // Re-initialising the same container would leak the old map, so tear it down.
-  const existing = registry.get(id);
-  if (existing) existing.map.remove();
+class MaplibreMap extends HTMLElement {
+  static get observedAttributes() {
+    return ["config", "scene"];
+  }
 
-  const map = new (maplibre().Map)({
-    container: id,
-    style: styleUrl,
-    center: [lng, lat],
-    zoom: zoom,
-  });
+  #map = null;
+  #ready = false;
+  #config = null;
+  // key -> { marker, data }, so successive scenes can be diffed by key.
+  #markers = new Map();
+  // A scene that arrived before the style finished loading, applied on `load`.
+  #pendingScene = null;
+  // The latest camera command issued before the map was ready (last one wins).
+  #pendingCamera = null;
 
-  registry.set(id, { map, markers: [] });
-}
+  attributeChangedCallback(name, _oldValue, value) {
+    if (value == null) return;
 
-export function setMarkers(id, markersJson, onClick) {
-  const entry = registry.get(id);
-  if (!entry) return;
+    if (name === "config") {
+      this.#config = JSON.parse(value);
+      this.#init();
+    } else if (name === "scene") {
+      const scene = JSON.parse(value);
+      if (this.#ready) this.#applyScene(scene);
+      else this.#pendingScene = scene;
+    }
+  }
 
-  for (const m of entry.markers) m.remove();
-  entry.markers = [];
+  connectedCallback() {
+    this.#init();
+  }
 
-  for (const data of JSON.parse(markersJson)) {
+  disconnectedCallback() {
+    if (this.#map) {
+      this.#map.remove();
+      this.#map = null;
+    }
+    this.#markers.clear();
+    this.#ready = false;
+  }
+
+  // Create the map once both the config and the DOM connection are in place.
+  #init() {
+    if (this.#map || !this.#config || !this.isConnected) return;
+
+    // The element is the map container; it must be a sized block.
+    if (!this.style.display) this.style.display = "block";
+
+    const cfg = this.#config;
+    this.#map = new (maplibre().Map)({
+      container: this,
+      style: cfg.style_url,
+      center: [cfg.lng, cfg.lat],
+      zoom: cfg.zoom,
+    });
+
+    this.#map.on("load", () => {
+      this.#ready = true;
+      this.dispatchEvent(new CustomEvent("maplibre:ready"));
+      if (this.#pendingScene) {
+        this.#applyScene(this.#pendingScene);
+        this.#pendingScene = null;
+      }
+      if (this.#pendingCamera) {
+        this.#pendingCamera();
+        this.#pendingCamera = null;
+      }
+    });
+
+    // A tap on the map background (not a marker — marker taps stopPropagation).
+    this.#map.on("click", (e) => {
+      this.dispatchEvent(
+        new CustomEvent("maplibre:click", {
+          detail: { lng: e.lngLat.lng, lat: e.lngLat.lat },
+        }),
+      );
+    });
+
+    // Camera observation. We only report it; we never feed it back in.
+    this.#map.on("moveend", () => {
+      const c = this.#map.getCenter();
+      this.dispatchEvent(
+        new CustomEvent("maplibre:moveend", {
+          detail: {
+            center: { lng: c.lng, lat: c.lat },
+            zoom: this.#map.getZoom(),
+            bearing: this.#map.getBearing(),
+            pitch: this.#map.getPitch(),
+          },
+        }),
+      );
+    });
+  }
+
+  // The keyed diff: the heart of the reconciler. Compare the incoming markers
+  // (by key) against the live ones and issue the minimal set of changes.
+  #applyScene(scene) {
+    const next = new Map((scene.markers || []).map((m) => [m.key, m]));
+
+    for (const [key, entry] of this.#markers) {
+      if (!next.has(key)) {
+        entry.marker.remove();
+        this.#markers.delete(key);
+      }
+    }
+
+    for (const [key, data] of next) {
+      const existing = this.#markers.get(key);
+      if (!existing) {
+        this.#addMarker(key, data);
+      } else {
+        if (existing.data.lng !== data.lng || existing.data.lat !== data.lat) {
+          existing.marker.setLngLat([data.lng, data.lat]);
+        }
+        if (existing.data.html !== data.html) {
+          existing.marker.getElement().innerHTML = data.html;
+        }
+        existing.data = data;
+      }
+    }
+  }
+
+  #addMarker(key, data) {
     const el = document.createElement("div");
     el.innerHTML = data.html; // arbitrary SVG/HTML
     el.style.cursor = "pointer";
     el.addEventListener("click", (event) => {
-      // Keep a marker tap from also reaching the map's background `click`
-      // handler (see `onMapClick`), so selecting a pin never doubles as a
-      // place/deselect gesture.
+      // Keep a marker tap from also reaching the map's background `click`, so
+      // selecting a pin never doubles as a place/deselect gesture.
       event.stopPropagation();
-      onClick(data.id);
+      this.dispatchEvent(
+        new CustomEvent("maplibre:markerclick", { detail: { id: key } }),
+      );
     });
 
     const marker = new (maplibre().Marker)({ element: el })
       .setLngLat([data.lng, data.lat])
-      .addTo(entry.map);
+      .addTo(this.#map);
 
-    entry.markers.push(marker);
+    this.#markers.set(key, { marker, data });
+  }
+
+  // Camera commands. Queued until the map is ready; last one wins.
+  flyTo(lng, lat, zoom, bearing, pitch) {
+    const run = () =>
+      this.#map.flyTo({ center: [lng, lat], zoom, bearing, pitch });
+    if (this.#ready) run();
+    else this.#pendingCamera = run;
+  }
+
+  fitBounds(swLng, swLat, neLng, neLat, padding) {
+    const run = () =>
+      this.#map.fitBounds(
+        [
+          [swLng, swLat],
+          [neLng, neLat],
+        ],
+        { padding },
+      );
+    if (this.#ready) run();
+    else this.#pendingCamera = run;
   }
 }
 
-export function onMapClick(id, handler) {
-  const entry = registry.get(id);
-  if (!entry) return;
+if (
+  typeof customElements !== "undefined" &&
+  !customElements.get("maplibre-map")
+) {
+  customElements.define("maplibre-map", MaplibreMap);
+}
 
-  // Replace any previously registered handler so re-registering doesn't stack
-  // listeners on the same map.
-  if (entry.onMapClick) entry.map.off("click", entry.onMapClick);
-
-  const listener = (e) => handler(e.lngLat.lng, e.lngLat.lat);
-  entry.onMapClick = listener;
-  entry.map.on("click", listener);
+// Camera commands cross the FFI as plain calls keyed by the element id; the
+// element instance (not a registry) is the handle.
+export function flyTo(id, lng, lat, zoom, bearing, pitch) {
+  const el = document.getElementById(id);
+  if (el && el.flyTo) el.flyTo(lng, lat, zoom, bearing, pitch);
 }
 
 export function fitBounds(id, swLng, swLat, neLng, neLat, padding) {
-  const entry = registry.get(id);
-  if (!entry) return;
-
-  entry.map.fitBounds(
-    [
-      [swLng, swLat],
-      [neLng, neLat],
-    ],
-    { padding },
-  );
+  const el = document.getElementById(id);
+  if (el && el.fitBounds) el.fitBounds(swLng, swLat, neLng, neLat, padding);
 }

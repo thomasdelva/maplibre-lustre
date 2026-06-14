@@ -1,9 +1,11 @@
 //// A tiny demo that exercises the whole `maplibre_lustre` surface end to end:
 ////
 ////   - render an OpenFreeMap basemap (no API key),
-////   - drop ~4 markers, at least one of which is a bespoke SVG "pie" pin,
+////   - declare ~4 markers, at least one of which is a bespoke SVG "pie" pin,
 ////   - turn a marker tap into a message that updates an on-screen label,
-////   - place new markers by tapping the map (in "Add pin" mode),
+////   - place new markers by tapping the map (in "Add pin" mode) — appending to
+////     the model re-renders the scene, and the element's keyed diff adds just
+////     the one new pin (no clear-and-rebuild),
 ////   - clear the selection by tapping empty space,
 ////   - frame all the points with a "Fit all" button.
 
@@ -17,10 +19,16 @@ import lustre/effect.{type Effect}
 import lustre/element.{type Element}
 import lustre/element/html
 import lustre/event
-import maplibre.{type LngLat, type Marker, Config, LngLat, Marker}
+import maplibre.{type LngLat, Config, LngLat, Marker}
 
-// The id of the map container. Stable for the lifetime of the app.
+// The id of the map element. Stable for the lifetime of the app.
 const map_id = "map"
+
+const map_config = Config(
+  style_url: "https://tiles.openfreemap.org/styles/bright",
+  center: LngLat(lng: -9.139, lat: 38.722),
+  zoom: 12.5,
+)
 
 // A handful of real-ish spots around Lisbon. These seed the model; the user
 // can then drop more by tapping the map in "Add pin" mode.
@@ -81,7 +89,6 @@ type Model {
 }
 
 type Msg {
-  MapReady
   MarkerClicked(id: String)
   MapClicked(position: LngLat)
   ToggleAdding
@@ -89,35 +96,20 @@ type Msg {
 }
 
 fn init(_args) -> #(Model, Effect(Msg)) {
-  let config =
-    Config(
-      style_url: "https://tiles.openfreemap.org/styles/bright",
-      center: LngLat(lng: -9.139, lat: 38.722),
-      zoom: 12.5,
-    )
-
+  // Nothing to do up front: the map is created by the `<maplibre-map>` element
+  // when `view` renders it, and the markers are part of the scene.
   let model =
     Model(places: initial_places, selected: None, adding: False, next_id: 1)
-
-  // Just create the map; `MapReady` is dispatched once it exists, and we place
-  // the markers (and wire up map-background clicks) in response to it.
-  #(model, maplibre.init(map_id, config, MapReady))
+  #(model, effect.none())
 }
 
 fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
   case msg {
-    MapReady -> #(
-      model,
-      effect.batch([
-        maplibre.set_markers(map_id, markers(model.places), MarkerClicked),
-        maplibre.on_map_click(map_id, MapClicked),
-      ]),
-    )
-
     MarkerClicked(id) -> #(Model(..model, selected: Some(id)), effect.none())
 
     // A tap on the map background: either drop a new pin (in "Add pin" mode)
-    // or, otherwise, clear the current selection.
+    // or, otherwise, clear the current selection. Both are pure model changes —
+    // the scene re-renders and the element reconciles it.
     MapClicked(position) ->
       case model.adding {
         True -> add_pin(model, position)
@@ -133,7 +125,8 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
   }
 }
 
-// Drop a new pin at `position`, select it, and re-render the marker set.
+// Drop a new pin at `position` and select it. No map effect needed: appending
+// to `places` changes the scene, and the keyed diff adds exactly one marker.
 fn add_pin(model: Model, position: LngLat) -> #(Model, Effect(Msg)) {
   let id = "pin-" <> int.to_string(model.next_id)
   let place =
@@ -143,24 +136,44 @@ fn add_pin(model: Model, position: LngLat) -> #(Model, Effect(Msg)) {
       position: position,
       pie: None,
     )
-  let places = list.append(model.places, [place])
   let model =
-    Model(..model, places:, selected: Some(id), next_id: model.next_id + 1)
-  #(model, maplibre.set_markers(map_id, markers(places), MarkerClicked))
+    Model(
+      ..model,
+      places: list.append(model.places, [place]),
+      selected: Some(id),
+      next_id: model.next_id + 1,
+    )
+  #(model, effect.none())
 }
 
 fn view(model: Model) -> Element(Msg) {
   html.div(
     [attribute.style("position", "relative"), attribute.style("height", "100%")],
     [
-      // The map fills the area; give the container an explicit height via CSS.
-      maplibre.container(map_id, [
-        attribute.style("position", "absolute"),
-        attribute.style("inset", "0"),
-      ]),
+      // The map fills the area; give it an explicit size via CSS, render it with
+      // no children, and hand it the scene derived from the model.
+      maplibre.map(
+        map_id,
+        map_config,
+        [
+          attribute.style("position", "absolute"),
+          attribute.style("inset", "0"),
+          maplibre.on_marker_click(MarkerClicked),
+          maplibre.on_map_click(MapClicked),
+        ],
+        scene(model),
+      ),
       overlay(model),
     ],
   )
+}
+
+fn scene(model: Model) -> maplibre.Scene {
+  let markers =
+    list.map(model.places, fn(place) {
+      #(place.id, Marker(position: place.position, html: marker_html(place)))
+    })
+  maplibre.markers(maplibre.scene(), markers)
 }
 
 fn overlay(model: Model) -> Element(Msg) {
@@ -231,14 +244,11 @@ fn button(label: String, background: String, msg: Msg) -> Element(Msg) {
   )
 }
 
-fn markers(places: List(Place)) -> List(Marker) {
-  list.map(places, fn(place) {
-    let html = case place.pie {
-      Some(#(a, b)) -> pie_two(a, b)
-      None -> dot("#444")
-    }
-    Marker(id: place.id, position: place.position, html: html)
-  })
+fn marker_html(place: Place) -> String {
+  case place.pie {
+    Some(#(a, b)) -> pie_two(a, b)
+    None -> dot("#444")
+  }
 }
 
 // A two-slice pie marker, proving the arbitrary-HTML marker path. The library
