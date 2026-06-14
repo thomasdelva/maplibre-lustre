@@ -119,6 +119,15 @@ to clear the selection, and a "Fit all" button. It is deployed to GitHub Pages
 by
 [`.github/workflows/pages.yml`](.github/workflows/pages.yml).
 
+### Previews
+
+Every branch is built and published to the `gh-pages` branch: `main` lands at
+the site root, and any other branch lands under `previews/<branch>/`. So a
+branch named `foo` is browsable at
+`https://thomasdelva.github.io/maplibre-lustre/previews/foo/` before it is
+merged — handy for reviewing on a phone. (This requires the repo's Pages
+**Source** to be set to "Deploy from a branch" → `gh-pages` → `/` root.)
+
 To run it locally:
 
 ```sh

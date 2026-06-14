@@ -3,13 +3,17 @@ name: Deploy demo to Pages
 on:
   push:
     branches:
-      - main
+      # Build every branch so feature branches get a live preview, but never
+      # the publishing branch itself (peaceiris pushes there, which would
+      # otherwise trigger an endless loop).
+      - "**"
+      - "!gh-pages"
   workflow_dispatch:
 
+# peaceiris/actions-gh-pages pushes the built site to the `gh-pages` branch
+# using the default token, so it needs write access to repo contents.
 permissions:
-  contents: read
-  pages: write
-  id-token: write
+  contents: write
 
 # Scope the concurrency group per ref so runs on different branches don't
 # cancel each other; newer pushes to the same ref still supersede older ones.
@@ -45,18 +49,24 @@ jobs:
           bun build ./_entry.mjs --minify --outfile ../_site/demo.mjs
           cp index.html ../_site/index.html
 
-      - uses: actions/upload-pages-artifact@v3
-        with:
-          path: _site
+      # main → site root; every other branch → previews/<branch>/. Branch names
+      # with slashes (e.g. claude/foo) just become nested folders, which is fine
+      # because the demo's asset paths are relative.
+      - name: Choose the publish destination
+        id: dest
+        run: |
+          if [ "${{ github.ref }}" = "refs/heads/main" ]; then
+            echo "dir=." >> "$GITHUB_OUTPUT"
+          else
+            echo "dir=previews/${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
+          fi
 
-  deploy:
-    needs: build
-    # Only publish from main. Pushes to the development branch just verify the build.
-    if: github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - id: deployment
-        uses: actions/deploy-pages@v4
+      # keep_files keeps everything already on gh-pages (the root build and any
+      # other branches' previews) and only overwrites this destination's files.
+      - name: Publish to gh-pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./_site
+          destination_dir: ${{ steps.dest.outputs.dir }}
+          keep_files: true
