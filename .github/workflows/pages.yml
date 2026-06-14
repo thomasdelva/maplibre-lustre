@@ -3,9 +3,9 @@ name: Deploy demo to Pages
 on:
   push:
     branches:
-      # Build every branch so feature branches get a live preview, but never
-      # the publishing branch itself (peaceiris pushes there, which would
-      # otherwise trigger an endless loop).
+      # Build every branch so any push redeploys the demo, but never the
+      # publishing branch itself (peaceiris pushes there, which would otherwise
+      # trigger an endless loop).
       - "**"
       - "!gh-pages"
   workflow_dispatch:
@@ -15,10 +15,10 @@ on:
 permissions:
   contents: write
 
-# Scope the concurrency group per ref so runs on different branches don't
-# cancel each other; newer pushes to the same ref still supersede older ones.
+# A single live site, so serialise deploys across all branches: never run two
+# at once, and let a newer run supersede an in-flight older one.
 concurrency:
-  group: pages-${{ github.ref }}
+  group: pages
   cancel-in-progress: true
 
 jobs:
@@ -42,31 +42,28 @@ jobs:
 
       - name: Bundle the demo
         working-directory: demo
+        env:
+          DEPLOY_BRANCH: ${{ github.ref_name }}
         run: |
           mkdir -p ../_site
           # Lustre apps don't auto-run; the entry imports and calls `main`.
           printf "import { main } from './build/dev/javascript/demo/demo.mjs';\nmain();\n" > _entry.mjs
           bun build ./_entry.mjs --minify --outfile ../_site/demo.mjs
           cp index.html ../_site/index.html
+          # Record which branch produced this deploy. index.html loads this to
+          # show a badge; it's absent in local dev, where the badge reads
+          # "local dev". Escape backslashes/quotes so any branch name is a valid
+          # JS string literal.
+          branch=${DEPLOY_BRANCH//\\/\\\\}
+          branch=${branch//\"/\\\"}
+          printf 'window.DEPLOY_BRANCH = "%s";\n' "$branch" > ../_site/deploy.js
 
-      # main → site root; every other branch → previews/<branch>/. Branch names
-      # with slashes (e.g. claude/foo) just become nested folders, which is fine
-      # because the demo's asset paths are relative.
-      - name: Choose the publish destination
-        id: dest
-        run: |
-          if [ "${{ github.ref }}" = "refs/heads/main" ]; then
-            echo "dir=." >> "$GITHUB_OUTPUT"
-          else
-            echo "dir=previews/${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
-          fi
-
-      # keep_files keeps everything already on gh-pages (the root build and any
-      # other branches' previews) and only overwrites this destination's files.
+      # force_orphan replaces the whole gh-pages branch with this build, so each
+      # run overwrites the previous deploy (whatever branch produced it). The
+      # live site always reflects the most recently pushed branch.
       - name: Publish to gh-pages
         uses: peaceiris/actions-gh-pages@v4
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: ./_site
-          destination_dir: ${{ steps.dest.outputs.dir }}
-          keep_files: true
+          force_orphan: true

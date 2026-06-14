@@ -119,14 +119,14 @@ to clear the selection, and a "Fit all" button. It is deployed to GitHub Pages
 by
 [`.github/workflows/pages.yml`](.github/workflows/pages.yml).
 
-### Previews
+### Deploys
 
-Every branch is built and published to the `gh-pages` branch: `main` lands at
-the site root, and any other branch lands under `previews/<branch>/`. So a
-branch named `foo` is browsable at
-`https://thomasdelva.github.io/maplibre-lustre/previews/foo/` before it is
-merged — handy for reviewing on a phone. (This requires the repo's Pages
-**Source** to be set to "Deploy from a branch" → `gh-pages` → `/` root.)
+Every push, on **any** branch, rebuilds the demo and overwrites the single live
+site at `https://thomasdelva.github.io/maplibre-lustre/`, so the page always
+reflects the most recently pushed branch — handy for reviewing a branch on a
+phone before merging. A small badge in the bottom-left corner shows which branch
+produced the current deploy. (This requires the repo's Pages **Source** to be
+set to "Deploy from a branch" → `gh-pages` → `/` root.)
 
 To run it locally:
 
