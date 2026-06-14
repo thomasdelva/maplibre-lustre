@@ -1,5 +1,4 @@
-//// A tiny day-trip planner demo that exercises the whole `maplibre_lustre`
-//// surface end to end:
+//// A tiny demo that exercises the whole `maplibre_lustre` surface end to end:
 ////
 ////   - render an OpenFreeMap basemap (no API key),
 ////   - drop ~4 markers, at least one of which is a bespoke SVG "pie" pin,
@@ -20,7 +19,7 @@ import maplibre.{type LngLat, type Marker, Config, LngLat, Marker}
 // The id of the map container. Stable for the lifetime of the app.
 const map_id = "map"
 
-// A handful of real-ish spots around Lisbon for the day trip.
+// A handful of real-ish spots around Lisbon.
 const places = [
   Place(
     id: "belem",
@@ -168,8 +167,8 @@ fn markers() -> List(Marker) {
   })
 }
 
-// A two-slice pie marker. The day-trip app would extend this to N slices for
-// real tag sets; the library itself only ever sees the resulting string.
+// A two-slice pie marker, proving the arbitrary-HTML marker path. The library
+// itself only ever sees the resulting string.
 fn pie_two(c1: String, c2: String) -> String {
   "<svg width='24' height='24' viewBox='0 0 24 24'>"
   <> "<path d='M12,12 L12,0 A12,12 0 0 1 12,24 Z' fill='"

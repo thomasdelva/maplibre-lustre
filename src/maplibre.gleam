@@ -1,8 +1,7 @@
 //// A minimal [Lustre](https://lustre.build) wrapper around
 //// [MapLibre GL JS](https://maplibre.org/maplibre-gl-js/docs/).
 ////
-//// The surface is intentionally tiny. It covers exactly four things a
-//// day-trip planner needs from a map:
+//// The surface is intentionally tiny. It covers exactly four things:
 ////
 ////   1. Render a basemap into a container (no API key required).
 ////   2. Show markers whose content is arbitrary HTML/SVG.
@@ -40,9 +39,9 @@ pub type Config {
 
 /// A single map pin.
 ///
-/// `html` is arbitrary markup (e.g. an inline SVG pie chart) injected as the
-/// marker element's `innerHTML`. `id` is echoed back to your `on_click`
-/// handler when the marker is tapped.
+/// `html` is arbitrary markup (e.g. an inline SVG) injected as the marker
+/// element's `innerHTML`. `id` is echoed back to your `on_click` handler when
+/// the marker is tapped.
 pub type Marker {
   Marker(id: String, position: LngLat, html: String)
 }
@@ -73,8 +72,8 @@ pub fn init(id: String, config: Config) -> Effect(msg) {
 /// Replace all markers on the map.
 ///
 /// This is a cheap clear-and-re-add: every existing marker is removed and the
-/// given list is added. That is fine for a city-scoped planner (hundreds of
-/// pins, not thousands).
+/// given list is added. That is fine for modest counts (hundreds of pins, not
+/// thousands).
 ///
 /// `on_click` turns a tapped marker's `id` into a message for your `update`
 /// loop. The markers cross the FFI boundary as a JSON string rather than as a
@@ -96,8 +95,8 @@ pub fn set_markers(
 }
 
 /// Frame a bounding box, animating the camera so the box (plus `padding`
-/// pixels on every side) is visible. Use this when the selected
-/// collection/tag set changes.
+/// pixels on every side) is visible. Use this when the set of points you want
+/// in view changes.
 ///
 /// Runs in `effect.after_paint`, and like [`set_markers`](#set_markers) it is
 /// queued by the FFI if it arrives before [`init`](#init) has created the map,

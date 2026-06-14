@@ -26,34 +26,10 @@
   <body>
     <div id="app"></div>
 
-    <!-- TEMP diagnostic banner: inspects the real DOM on-device so we can see
-         what actually happened without a desktop console. Remove once verified. -->
-    <div
-      id="diag"
-      style="position: fixed; bottom: 0; left: 0; right: 0; z-index: 9999; background: rgba(0,0,0,0.8); color: #0f0; font: 12px/1.4 monospace; padding: 6px; white-space: pre-wrap;"
-    >
-      diag: waiting…
-    </div>
-    <script>
-      window.addEventListener("error", function (e) {
-        var d = document.getElementById("diag");
-        if (d) d.textContent = "JS ERROR: " + (e.message || e.error);
-      });
-      setTimeout(function () {
-        var d = document.getElementById("diag");
-        if (!d) return;
-        d.textContent =
-          "maplibregl=" + !!window.maplibregl +
-          "  canvas=" + document.querySelectorAll(".maplibregl-canvas").length +
-          "  markers=" + document.querySelectorAll(".maplibregl-marker").length +
-          "  svgs=" + document.querySelectorAll("#app svg").length;
-      }, 3000);
-    </script>
-
     <!-- RELATIVE path: GitHub Pages serves this site under /maplibre-lustre/,
          not the domain root. The filename must match the lustre/dev build
          output (snake_case of the entry module, i.e. demo.mjs). The ?v query
-         busts the browser cache when the bundle changes. -->
+         lets you bust the browser cache by bumping it when the bundle changes. -->
     <script type="module" src="./demo.mjs?v=3"></script>
   </body>
 </html>

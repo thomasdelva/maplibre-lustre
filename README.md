@@ -1,16 +1,14 @@
 # maplibre_lustre
 
 A minimal [Lustre](https://lustre.build) wrapper around
-[MapLibre GL JS](https://maplibre.org/maplibre-gl-js/docs/), built for a
-day-trip planning app.
+[MapLibre GL JS](https://maplibre.org/maplibre-gl-js/docs/).
 
 The surface is intentionally tiny. It does exactly four things:
 
 1. **Render a basemap** into a container — no API key (works great with
    [OpenFreeMap](https://openfreemap.org) vector tiles).
 2. **Show markers whose content is arbitrary HTML/SVG**, so each pin can be a
-   bespoke graphic (the day-trip app uses a "Trivial-Pursuit pie" showing a
-   place's tag colours).
+   bespoke graphic (e.g. an inline SVG).
 3. **Emit a message when a marker is tapped**, to keep the map in sync with a
    text/list view.
 4. **Frame a set of points** with `fit_bounds` when the selection changes.
@@ -75,8 +73,8 @@ fn init(_args) {
     Marker(id: "belem", position: LngLat(-9.2160, 38.6916), html: "<svg>…</svg>"),
   ]
 
-  // Order is safe: both effects run after paint, in batch order, so the map
-  // is created before its markers are placed on it.
+  // Order-independent: both run after paint, and the FFI queues markers that
+  // arrive before init has created the map, applying them once it does.
   let setup =
     effect.batch([
       maplibre.init(map_id, config),
@@ -94,7 +92,7 @@ fn view(_model) {
 ```
 
 `maplibre.fit_bounds(map_id, sw, ne, padding)` frames a bounding box, e.g. when
-the selected collection changes.
+the set of points you want in view changes.
 
 ## Demo
 
