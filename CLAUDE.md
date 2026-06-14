@@ -52,9 +52,18 @@ Reachability (verified):
 | `github.com`, `raw.githubusercontent.com`, `codeload.github.com` | 200 | reachable |
 
 **Recommended fix: allow `repo.hex.pm` in the environment's network policy**, so
-the standard `gleam deps download` / `gleam build` work unchanged. See the
-Claude Code on the web docs for configuring the network policy / allowed
-domains: <https://code.claude.com/docs/en/claude-code-on-the-web>.
+the standard `gleam deps download` / `gleam build` work unchanged. The default
+**Trusted** allowlist includes `hex.pm`/`www.hex.pm` (the website) but *not*
+`repo.hex.pm`, which is the package CDN Gleam actually fetches from — hence the
+403. To add it: open the environment for editing (cloud icon → gear), set
+**Network access** to **Custom**, add `repo.hex.pm` (or `*.hex.pm`) under
+**Allowed domains**, tick "Also include default list of common package
+managers", save, and start a **new** session (the policy applies at session
+creation, not mid-run). Docs:
+<https://code.claude.com/docs/en/claude-code-on-the-web#network-access>.
+
+Until then, CI is the build oracle: `.github/workflows/ci.yml` builds the
+library and demo on every push (GitHub runners can reach `repo.hex.pm`).
 
 > Note: manually vendoring the dependency tree from GitHub as path deps is
 > **not** the sanctioned path — the sandbox classifier blocks fetching and
