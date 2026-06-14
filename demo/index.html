@@ -21,15 +21,39 @@
         height: 100%;
         margin: 0;
       }
+
+      /* Shows which branch produced the current deploy (see deploy.js below). */
+      #deploy-badge {
+        position: fixed;
+        bottom: 8px;
+        left: 8px;
+        z-index: 2;
+        padding: 4px 8px;
+        font: 12px/1.2 system-ui, sans-serif;
+        color: white;
+        background: rgba(0, 0, 0, 0.7);
+        border-radius: 6px;
+        pointer-events: none;
+      }
     </style>
   </head>
   <body>
     <div id="app"></div>
 
+    <!-- Branch badge. The Pages workflow writes deploy.js, which sets
+         window.DEPLOY_BRANCH; it's absent in local dev, so the badge falls back
+         to "local dev". -->
+    <div id="deploy-badge"></div>
+    <script src="./deploy.js"></script>
+    <script>
+      document.getElementById("deploy-badge").textContent =
+        window.DEPLOY_BRANCH || "local dev";
+    </script>
+
     <!-- RELATIVE path: GitHub Pages serves this site under /maplibre-lustre/,
          not the domain root. The filename must match the lustre/dev build
          output (snake_case of the entry module, i.e. demo.mjs). The ?v query
          lets you bust the browser cache by bumping it when the bundle changes. -->
-    <script type="module" src="./demo.mjs?v=4"></script>
+    <script type="module" src="./demo.mjs?v=5"></script>
   </body>
 </html>

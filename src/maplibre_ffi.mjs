@@ -49,7 +49,13 @@ export function setMarkers(id, markersJson, onClick) {
     const el = document.createElement("div");
     el.innerHTML = data.html; // arbitrary SVG/HTML
     el.style.cursor = "pointer";
-    el.addEventListener("click", () => onClick(data.id));
+    el.addEventListener("click", (event) => {
+      // Keep a marker tap from also reaching the map's background `click`
+      // handler (see `onMapClick`), so selecting a pin never doubles as a
+      // place/deselect gesture.
+      event.stopPropagation();
+      onClick(data.id);
+    });
 
     const marker = new (maplibre().Marker)({ element: el })
       .setLngLat([data.lng, data.lat])
@@ -57,6 +63,19 @@ export function setMarkers(id, markersJson, onClick) {
 
     entry.markers.push(marker);
   }
+}
+
+export function onMapClick(id, handler) {
+  const entry = registry.get(id);
+  if (!entry) return;
+
+  // Replace any previously registered handler so re-registering doesn't stack
+  // listeners on the same map.
+  if (entry.onMapClick) entry.map.off("click", entry.onMapClick);
+
+  const listener = (e) => handler(e.lngLat.lng, e.lngLat.lat);
+  entry.onMapClick = listener;
+  entry.map.on("click", listener);
 }
 
 export function fitBounds(id, swLng, swLat, neLng, neLat, padding) {

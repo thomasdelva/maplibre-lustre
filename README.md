@@ -3,7 +3,7 @@
 A minimal [Lustre](https://lustre.build) wrapper around
 [MapLibre GL JS](https://maplibre.org/maplibre-gl-js/docs/).
 
-The surface is intentionally tiny. It does exactly four things:
+The surface is intentionally tiny. It does exactly five things:
 
 1. **Render a basemap** into a container — no API key (works great with
    [OpenFreeMap](https://openfreemap.org) vector tiles).
@@ -11,7 +11,9 @@ The surface is intentionally tiny. It does exactly four things:
    bespoke graphic (e.g. an inline SVG).
 3. **Emit a message when a marker is tapped**, to keep the map in sync with a
    text/list view.
-4. **Frame a set of points** with `fit_bounds` when the selection changes.
+4. **Emit a message when the map background is tapped** (with the clicked
+   `LngLat`), so you can place new markers or clear a selection.
+5. **Frame a set of points** with `fit_bounds` when the selection changes.
 
 That is the whole API. There are no GeoJSON sources, style layers, clustering,
 popups, or controls — by design.
@@ -63,6 +65,7 @@ const map_id = "map"
 type Msg {
   MapReady
   MarkerClicked(String)
+  MapClicked(LngLat)
 }
 
 fn init(_args) {
@@ -84,9 +87,15 @@ fn update(model, msg) {
       let markers = [
         Marker(id: "belem", position: LngLat(-9.2160, 38.6916), html: "<svg>…</svg>"),
       ]
-      #(model, maplibre.set_markers(map_id, markers, MarkerClicked))
+      // Place the markers, and listen for taps on the map background.
+      #(model, effect.batch([
+        maplibre.set_markers(map_id, markers, MarkerClicked),
+        maplibre.on_map_click(map_id, MapClicked),
+      ]))
     }
     MarkerClicked(id) -> #(Model(selected: Some(id)), effect.none())
+    // Tap empty space to clear the selection (or drop a new marker here).
+    MapClicked(_lng_lat) -> #(Model(selected: None), effect.none())
   }
 }
 
@@ -105,8 +114,27 @@ the set of points you want in view changes.
 [`demo/`](demo/) is a separate Lustre SPA that consumes this library via a path
 dependency and exercises the whole surface: an OpenFreeMap basemap, four Lisbon
 pins (one rendered as a two-colour pie), tap-to-select updating an on-screen
-label, and a "Fit all" button. It is deployed to GitHub Pages by
+label, an "Add pin" mode that drops new markers where you tap, tap-empty-space
+to clear the selection, and a "Fit all" button. It is deployed to GitHub Pages
+by
 [`.github/workflows/pages.yml`](.github/workflows/pages.yml).
+
+### Deploys
+
+The demo is rebuilt and deployed (via `actions/deploy-pages`) to the single live
+site at `https://thomasdelva.github.io/maplibre-lustre/` on three triggers:
+pushes to `main`, manual `workflow_dispatch`, and pull requests labelled
+**`test-deploy`**. The PR trigger is deliberately a personal playground — it only
+fires for label/pushes by the repo owner on a branch in this repo (not forks) —
+so labelling your own PR `test-deploy` publishes it to the live URL to preview on
+a phone before merging. Each deploy overwrites the previous one (the latest run
+wins; rapid pushes cancel older in-flight ones), and a small badge in the
+bottom-left corner shows which branch produced the current deploy.
+
+This requires two repo settings: Pages **Source** = "GitHub Actions", and the
+`github-pages` environment configured to allow deploys from **all** branches
+(Settings → Environments → `github-pages` → Deployment branches), not just the
+default one.
 
 To run it locally:
 
