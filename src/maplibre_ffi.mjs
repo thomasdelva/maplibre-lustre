@@ -10,6 +10,14 @@
 // look it up by id and mutate it.
 const registry = new Map();
 
+// containerId -> { markers?: {json, onClick}, fit?: {bounds, padding} }
+//
+// `set_markers`/`fit_bounds` and `init` are all dispatched as `after_paint`
+// effects, and Lustre does not guarantee that a batched `init` runs before the
+// `set_markers` batched with it. So a call can arrive before the map exists; we
+// stash the most recent request here and flush it when `init` creates the map.
+const pending = new Map();
+
 function maplibre() {
   const gl = globalThis.maplibregl;
   if (!gl) {
@@ -33,13 +41,32 @@ export function init(id, styleUrl, lng, lat, zoom) {
     zoom: zoom,
   });
 
-  registry.set(id, { map, markers: [] });
+  const entry = { map, markers: [] };
+  registry.set(id, entry);
+
+  // Apply anything that was requested before the map existed.
+  const queued = pending.get(id);
+  if (queued) {
+    pending.delete(id);
+    if (queued.markers) {
+      applyMarkers(entry, queued.markers.json, queued.markers.onClick);
+    }
+    if (queued.fit) map.fitBounds(queued.fit.bounds, { padding: queued.fit.padding });
+  }
 }
 
 export function setMarkers(id, markersJson, onClick) {
   const entry = registry.get(id);
-  if (!entry) return;
+  if (!entry) {
+    const queued = pending.get(id) ?? {};
+    queued.markers = { json: markersJson, onClick };
+    pending.set(id, queued);
+    return;
+  }
+  applyMarkers(entry, markersJson, onClick);
+}
 
+function applyMarkers(entry, markersJson, onClick) {
   for (const m of entry.markers) m.remove();
   entry.markers = [];
 
@@ -58,14 +85,18 @@ export function setMarkers(id, markersJson, onClick) {
 }
 
 export function fitBounds(id, swLng, swLat, neLng, neLat, padding) {
-  const entry = registry.get(id);
-  if (!entry) return;
+  const bounds = [
+    [swLng, swLat],
+    [neLng, neLat],
+  ];
 
-  entry.map.fitBounds(
-    [
-      [swLng, swLat],
-      [neLng, neLat],
-    ],
-    { padding },
-  );
+  const entry = registry.get(id);
+  if (!entry) {
+    const queued = pending.get(id) ?? {};
+    queued.fit = { bounds, padding };
+    pending.set(id, queued);
+    return;
+  }
+
+  entry.map.fitBounds(bounds, { padding });
 }

@@ -80,10 +80,10 @@ pub fn init(id: String, config: Config) -> Effect(msg) {
 /// loop. The markers cross the FFI boundary as a JSON string rather than as a
 /// Gleam list (a Gleam list is a linked list, not a JS array).
 ///
-/// Like [`init`](#init) this runs in `effect.after_paint`. That is what makes
-/// `effect.batch([init(...), set_markers(...)])` safe: deferred effects run in
-/// the order they were batched, so the map is always created before its markers
-/// are placed on it.
+/// Runs in `effect.after_paint`. You can batch this alongside [`init`](#init)
+/// in any order: Lustre does not guarantee that a batched `init` runs first, so
+/// the FFI queues markers that arrive before the map exists and applies them as
+/// soon as `init` creates it.
 pub fn set_markers(
   id: String,
   markers: List(Marker),
@@ -99,8 +99,9 @@ pub fn set_markers(
 /// pixels on every side) is visible. Use this when the selected
 /// collection/tag set changes.
 ///
-/// Runs in `effect.after_paint`, so it is safe to batch alongside
-/// [`init`](#init) (see [`set_markers`](#set_markers) for why).
+/// Runs in `effect.after_paint`, and like [`set_markers`](#set_markers) it is
+/// queued by the FFI if it arrives before [`init`](#init) has created the map,
+/// so batching order does not matter.
 pub fn fit_bounds(
   id: String,
   sw: LngLat,
