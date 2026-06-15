@@ -14,6 +14,10 @@
 // has no FFI externs, so this import is one-way (no cycle).
 import { diff_json } from "./maplibre/reconcile.mjs";
 
+// The baseline `diff_json` diffs the first scene against, and what the diff
+// resets to on disconnect: an empty marker set.
+const EMPTY_SCENE = '{"markers":[]}';
+
 function maplibre() {
   const gl = globalThis.maplibregl;
   if (!gl) {
@@ -38,7 +42,7 @@ class MaplibreMap extends HTMLElement {
   #markers = new Map();
   // The previous scene as the raw JSON string we last applied; `diff_json`
   // diffs it against each incoming string. Kept in lockstep with `#markers`.
-  #prevJson = '{"markers":[]}';
+  #prevJson = EMPTY_SCENE;
   // A scene (raw JSON string) that arrived before the style finished loading,
   // applied on `load`.
   #pendingScene = null;
@@ -71,7 +75,7 @@ class MaplibreMap extends HTMLElement {
     this.#markers.clear();
     // Reset the diff baseline too, so a future reconnect re-adds from scratch
     // instead of issuing moves/updates against markers that no longer exist.
-    this.#prevJson = '{"markers":[]}';
+    this.#prevJson = EMPTY_SCENE;
     this.#ready = false;
   }
 
@@ -120,32 +124,30 @@ class MaplibreMap extends HTMLElement {
     this.#prevJson = json;
   }
 
-  // Apply the ordered ops in sequence. Move/remove/set_html guard on the marker
-  // existing so a stray op can never throw.
+  // Apply the ordered ops in sequence. Every op but `add` targets an existing
+  // marker, so we look it up once and skip if it's gone — a stray op can never
+  // throw.
   #apply(ops) {
     for (const op of ops) {
+      if (op.op === "add") {
+        this.#addMarker(op);
+        continue;
+      }
+
+      const marker = this.#markers.get(op.key);
+      if (!marker) continue;
+
       switch (op.op) {
-        case "add":
-          this.#addMarker(op);
+        case "remove":
+          marker.remove();
+          this.#markers.delete(op.key);
           break;
-        case "remove": {
-          const marker = this.#markers.get(op.key);
-          if (marker) {
-            marker.remove();
-            this.#markers.delete(op.key);
-          }
+        case "move":
+          marker.setLngLat([op.lng, op.lat]);
           break;
-        }
-        case "move": {
-          const marker = this.#markers.get(op.key);
-          if (marker) marker.setLngLat([op.lng, op.lat]);
+        case "set_html":
+          marker.getElement().innerHTML = op.html;
           break;
-        }
-        case "set_html": {
-          const marker = this.#markers.get(op.key);
-          if (marker) marker.getElement().innerHTML = op.html;
-          break;
-        }
       }
     }
   }
