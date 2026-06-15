@@ -166,3 +166,73 @@ fn do_fit_bounds(
   ne_lat: Float,
   padding: Int,
 ) -> Nil
+// ---------------------------------------------------------------------------
+// TODO(coverage): MapLibre GL JS surface this wrapper does NOT cover, and how
+// to add each piece. Today it covers a deliberately tiny slice — create a
+// basemap (`Config`: style/center/zoom), show keyed HTML markers, report
+// marker and map-background taps, and `fit_bounds`. Everything below is
+// unwrapped, grouped by area and ordered roughly by value.
+//
+// Three mechanics cover almost every addition; pick by the kind of API:
+//   * Declarative content (derived from the model) -> add it to the `Scene`
+//     JSON and extend the keyed reconciler in maplibre_ffi.mjs to diff it.
+//     This is how markers work; sources/layers/popups follow the same shape.
+//   * One-shot command (imperative action) -> a `fn(...) -> Effect`, an FFI
+//     export, and a method on the element queued until `load`. Like fit_bounds.
+//   * Observation (the map reports something) -> an `on_*(handler) ->
+//     Attribute` that decodes a CustomEvent the element dispatches. Like
+//     on_map_click.
+//
+// 1. Map creation options — extend `Config` and the `new maplibregl.Map({...})`
+//    call: bearing, pitch, minZoom/maxZoom, minPitch/maxPitch, maxBounds,
+//    interactive, attributionControl, cooperativeGestures, hash,
+//    renderWorldCopies, locale, fadeDuration. Pure config; cheapest win.
+//
+// 2. Camera — commands mirroring fit_bounds (Effect + FFI + queued method):
+//    jumpTo, easeTo, flyTo, panBy, zoomTo, rotateTo, setBearing, setPitch,
+//    fitScreenCoordinates. Observation: moveend/move/zoom/rotate/pitch events
+//    exposing center/zoom/bearing/pitch (reintroduce a `Camera` type).
+//
+// 3. Map & interaction events — beyond click: dblclick, contextmenu,
+//    mousemove/mousedown/mouseup, mouseenter/mouseleave, wheel,
+//    dragstart/drag/dragend, boxzoom, load (a ready signal), idle, render,
+//    error, resize, and the data lifecycle (data/sourcedata/styledata). Each
+//    is one `on_*` Attribute.
+//
+// 4. Sources + Layers — the big one, and the reason the model stays small.
+//    Sources: geojson, vector, raster, raster-dem, image, video
+//    (addSource/removeSource/getSource, setData). Layers: fill, line, symbol,
+//    circle, heatmap, fill-extrusion, raster, hillshade, background, sky, with
+//    setPaintProperty/setLayoutProperty/setFilter/setLayerZoomRange and
+//    `beforeId` ordering. Model declaratively: add `sources` and `layers`
+//    (keyed, like markers) to the `Scene` and diff them in the reconciler
+//    (add/remove/update by id; layers also need order handling). Both must wait
+//    for style load — queue like the scene does today. Unlocks clustering (a
+//    geojson option) and data-driven styling.
+//
+// 5. Feature state & hit-testing — needs (4) first: setFeatureState/
+//    removeFeatureState for hover/selection styling, queryRenderedFeatures/
+//    querySourceFeatures for "what's under the cursor", project/unproject for
+//    lng-lat <-> pixel. Layer-scoped events (`map.on('click', layerId, ...)`)
+//    are a layer-keyed variant of the on_* Attributes.
+//
+// 6. Controls — NavigationControl, GeolocateControl, ScaleControl,
+//    FullscreenControl, AttributionControl, GlobeControl, and custom controls
+//    (addControl/removeControl). Add-once and position-keyed; expose as
+//    `Config` flags or `Scene` entries.
+//
+// 7. Popups & richer markers — the Popup class (setHTML/setLngLat, anchor,
+//    offset, closeOnClick) as scene content; and marker options we omit:
+//    draggable (+ drag events), anchor, offset, rotation, color, opacity,
+//    setPopup. Extend `Marker` and the marker reconciler.
+//
+// 8. Style & runtime visuals — setStyle (swap basemap at runtime), addImage/
+//    loadImage (icons for symbol layers), setProjection({type:'globe'}) and its
+//    atmosphere, setTerrain (3D; needs a raster-dem source), setSky/setFog,
+//    setLight. Globe/terrain apply only after style load — queue like the
+//    scene. Custom WebGL layers (CustomLayerInterface) enable deck.gl/three.js.
+//
+// Outside the Map class, setRTLTextPlugin (RTL labels) and addProtocol (e.g.
+// pmtiles) are global one-time registrations — best done in the host page, not
+// the wrapper.
+// ---------------------------------------------------------------------------
