@@ -33,6 +33,11 @@ jobs:
           gleam deps download
           gleam build --target javascript
 
+      - name: Test the library
+        # The pure marker reconciler (src/maplibre/reconcile.gleam) under
+        # gleeunit. JS target via gleam.toml; gleeunit runs under Node.
+        run: gleam test
+
       - name: Build the demo (JavaScript target)
         working-directory: demo
         run: |
