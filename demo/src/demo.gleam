@@ -5,7 +5,7 @@
 ////   - turn a marker tap into a message that updates an on-screen label,
 ////   - place new markers by tapping the map (in "Add pin" mode) — appending to
 ////     the model re-renders the scene, and the element's keyed diff adds just
-////     the one new pin (no clear-and-rebuild),
+////     the one new pin,
 ////   - clear the selection by tapping empty space,
 ////   - frame all the points with a "Fit all" button.
 
@@ -77,9 +77,9 @@ pub fn main() {
 }
 
 type Model {
-  // `places` is mutable now that pins can be dropped at runtime. `adding`
-  // toggles "tap the map to drop a pin" mode, and `next_id` keeps dropped pins
-  // uniquely identified.
+  // `places` grows at runtime as pins are dropped. `adding` toggles "tap the
+  // map to drop a pin" mode, and `next_id` keeps dropped pins uniquely
+  // identified.
   Model(
     places: List(Place),
     selected: Option(String),
@@ -125,8 +125,8 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
   }
 }
 
-// Drop a new pin at `position` and select it. No map effect needed: appending
-// to `places` changes the scene, and the keyed diff adds exactly one marker.
+// Drop a new pin at `position` and select it. Appending to `places` changes the
+// scene, and the keyed diff adds exactly one marker.
 fn add_pin(model: Model, position: LngLat) -> #(Model, Effect(Msg)) {
   let id = "pin-" <> int.to_string(model.next_id)
   let place =
@@ -173,7 +173,7 @@ fn scene(model: Model) -> maplibre.Scene {
     list.map(model.places, fn(place) {
       #(place.id, Marker(position: place.position, html: marker_html(place)))
     })
-  maplibre.markers(maplibre.scene(), markers)
+  maplibre.scene(markers)
 }
 
 fn overlay(model: Model) -> Element(Msg) {

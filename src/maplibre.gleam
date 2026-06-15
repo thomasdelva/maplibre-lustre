@@ -5,8 +5,7 @@
 //// It lives inside a `<maplibre-map>` custom element: you render that element
 //// in your `view` and hand it a declarative [`Scene`](#Scene) (a pure function
 //// of your model). The element diffs successive scenes and issues the minimal
-//// MapLibre calls — adding, moving, and removing only the markers that changed,
-//// rather than clearing and rebuilding them.
+//// MapLibre calls — adding, moving, and removing only the markers that changed.
 ////
 //// Data flows one way:
 ////
@@ -58,24 +57,18 @@ pub type Marker {
 }
 
 /// A declarative description of what should be on the map right now. Build it
-/// with [`scene`](#scene) and [`markers`](#markers), as a pure function of your
-/// model, and pass it to [`map`](#map). The element reconciles successive
-/// scenes for you.
+/// with [`scene`](#scene), as a pure function of your model, and pass it to
+/// [`map`](#map). The element reconciles successive scenes for you.
 pub opaque type Scene {
   Scene(markers: List(#(String, Marker)))
 }
 
-/// An empty scene. Add to it with [`markers`](#markers).
-pub fn scene() -> Scene {
-  Scene(markers: [])
-}
-
-/// Set the scene's markers. Each marker is paired with a **stable key** (any
-/// unique string); the key is how the element tells one render's markers from
-/// the next, so a marker keeps its identity — and the element only adds, moves,
-/// or removes the ones that actually changed. The key is also echoed back to
-/// [`on_marker_click`](#on_marker_click).
-pub fn markers(_scene: Scene, markers: List(#(String, Marker))) -> Scene {
+/// Build a scene from a keyed list of markers. Each marker is paired with a
+/// **stable key** (any unique string); the key is how the element tells one
+/// render's markers from the next, so a marker keeps its identity — and the
+/// element only adds, moves, or removes the ones that actually changed. The key
+/// is also echoed back to [`on_marker_click`](#on_marker_click).
+pub fn scene(markers: List(#(String, Marker))) -> Scene {
   Scene(markers: markers)
 }
 

@@ -31,7 +31,7 @@ class MaplibreMap extends HTMLElement {
   #markers = new Map();
   // A scene that arrived before the style finished loading, applied on `load`.
   #pendingScene = null;
-  // The latest camera command issued before the map was ready (last one wins).
+  // A camera command issued before the map was ready, run once it loads.
   #pendingCamera = null;
 
   attributeChangedCallback(name, _oldValue, value) {
@@ -168,7 +168,7 @@ if (
 }
 
 // The camera command crosses the FFI as a plain call keyed by the element id;
-// the element instance (not a registry) is the handle.
+// the element instance is the handle.
 export function fitBounds(id, swLng, swLat, neLng, neLat, padding) {
   const el = document.getElementById(id);
   if (el && el.fitBounds) el.fitBounds(swLng, swLat, neLng, neLat, padding);

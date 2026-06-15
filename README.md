@@ -24,9 +24,9 @@ The imperative, stateful MapLibre `Map` instance **never lives in your Lustre
 `Model`**. It lives inside a `<maplibre-map>` custom element. You render that
 element in your `view` and hand it a declarative **`Scene`** — a pure function
 of your model — and the element diffs successive scenes, adding, moving, and
-removing only the markers that changed (markers are **keyed**, so this is not a
-clear-and-rebuild). Your model only holds serialisable state (the selected id,
-the marker list, …).
+removing only the markers that changed. Markers are **keyed**, so a pin keeps
+its identity across renders. Your model only holds serialisable state (the
+selected id, the marker list, …).
 
 Data flows one way:
 
@@ -105,7 +105,7 @@ fn view(model) {
   // The scene is a pure function of the model. Each marker is paired with a
   // stable key; the element diffs the scene and only touches what changed.
   let scene =
-    maplibre.markers(maplibre.scene(), [
+    maplibre.scene([
       #("belem", Marker(position: LngLat(-9.2160, 38.6916), html: "<svg>…</svg>")),
     ])
 

@@ -10,8 +10,9 @@ A minimal [Lustre](https://lustre.build) (Gleam) wrapper around
 [MapLibre GL JS](https://maplibre.org/maplibre-gl-js/docs/). JavaScript target
 only. MapLibre itself is **not** a dependency — the host page loads it from a
 CDN and the FFI reads `window.maplibregl`. The live, imperative `Map` instance
-never lives in the Lustre `Model`; it is held on the JS side and reconciled by
-effects/events. See `README.md` for the public API.
+never lives in the Lustre `Model`; it lives inside a `<maplibre-map>` custom
+element that reconciles a declarative scene (the markers) and surfaces clicks
+and camera commands. See `README.md` for the public API.
 
 - Library source: `src/maplibre.gleam` (+ `src/maplibre_ffi.mjs`).
 - Demo SPA (path-dependency consumer): `demo/`.
