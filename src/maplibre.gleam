@@ -90,7 +90,11 @@ pub fn map(
     [
       attribute.id(id),
       attribute.attribute("config", json.to_string(encode_config(config))),
-      attribute.attribute("scene", json.to_string(encode_scene(scene))),
+      // The scene crosses as a DOM *property*, not a stringified attribute: on
+      // the JavaScript target a `Json` is already a plain object, so the element
+      // receives it without a `json.to_string`/`JSON.parse` round-trip, and
+      // Lustre re-sets it only when the scene actually changed (structural diff).
+      attribute.property("scene", encode_scene(scene)),
       ..attributes
     ],
     [],
