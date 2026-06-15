@@ -9,7 +9,6 @@
 ////   - clear the selection by tapping empty space,
 ////   - frame all the points with a "Fit all" button.
 
-import gleam/float
 import gleam/int
 import gleam/list
 import gleam/option.{type Option, None, Some}
@@ -119,8 +118,8 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
     ToggleAdding -> #(Model(..model, adding: !model.adding), effect.none())
 
     FitAllClicked -> {
-      let #(sw, ne) = bounds(model.places)
-      #(model, maplibre.fit_bounds(map_id, sw, ne, 60))
+      let points = list.map(model.places, fn(p) { p.position })
+      #(model, maplibre.fit_bounds(map_id, points, 60))
     }
   }
 }
@@ -150,8 +149,9 @@ fn view(model: Model) -> Element(Msg) {
   html.div(
     [attribute.style("position", "relative"), attribute.style("height", "100%")],
     [
-      // The map fills the area; give it an explicit size via CSS, render it with
-      // no children, and hand it the scene derived from the model.
+      // The element fills its parent by default; here we pin it absolutely so
+      // the overlay can sit on top. It renders with no children, and we hand it
+      // the scene derived from the model.
       maplibre.map(
         map_id,
         map_config,
@@ -271,21 +271,4 @@ fn dot(colour: String) -> String {
   <> colour
   <> "' stroke='white' stroke-width='2'/>"
   <> "</svg>"
-}
-
-// Compute a south-west / north-east bounding box covering all places.
-fn bounds(places: List(Place)) -> #(LngLat, LngLat) {
-  let lngs = list.map(places, fn(p) { p.position.lng })
-  let lats = list.map(places, fn(p) { p.position.lat })
-  let sw = LngLat(lng: min(lngs), lat: min(lats))
-  let ne = LngLat(lng: max(lngs), lat: max(lats))
-  #(sw, ne)
-}
-
-fn min(xs: List(Float)) -> Float {
-  list.fold(xs, 1.0e9, float.min)
-}
-
-fn max(xs: List(Float)) -> Float {
-  list.fold(xs, -1.0e9, float.max)
 }

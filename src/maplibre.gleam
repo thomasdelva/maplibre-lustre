@@ -25,7 +25,9 @@
 //// element reads `window.maplibregl`).
 
 import gleam/dynamic/decode
+import gleam/float
 import gleam/json.{type Json}
+import gleam/list
 import lustre/attribute.{type Attribute}
 import lustre/effect.{type Effect}
 import lustre/element.{type Element}
@@ -72,8 +74,9 @@ pub fn scene(markers: List(#(String, Marker))) -> Scene {
   Scene(markers: markers)
 }
 
-/// Render the map. Give it a stable `id` and size it with CSS (an explicit
-/// height is required, or the map is invisible). It renders with **no
+/// Render the map. Give it a stable `id`. It fills its parent by default
+/// (`height: 100%`), so a forgotten height no longer leaves the map invisible;
+/// pass your own `height` in `attributes` to override. It renders with **no
 /// children** — the element injects MapLibre's own canvas — and reconciles the
 /// given [`Scene`](#Scene) on every render.
 ///
@@ -118,17 +121,37 @@ pub fn on_map_click(handler: fn(LngLat) -> msg) -> Attribute(msg) {
   event.on("maplibre:click", decoder)
 }
 
-/// Frame a bounding box, animating the camera so the box (plus `padding` pixels
-/// on every side) is visible. A one-shot command: applied when the effect runs,
-/// never re-asserted, and queued until the map for `id` exists.
-pub fn fit_bounds(
-  id: String,
-  sw: LngLat,
-  ne: LngLat,
-  padding: Int,
-) -> Effect(msg) {
+/// Frame a set of `points`, animating the camera so they all fit (plus
+/// `padding` pixels on every side). The bounding box is computed for you, so you
+/// never deal with corners — pass the marker positions (or any points) you want
+/// in view.
+///
+/// A one-shot command: applied when the effect runs, never re-asserted, and
+/// queued until the map for `id` exists. If `points` is empty this is a no-op.
+pub fn fit_bounds(id: String, points: List(LngLat), padding: Int) -> Effect(msg) {
   use _dispatch <- effect.from
-  do_fit_bounds(id, sw.lng, sw.lat, ne.lng, ne.lat, padding)
+  case bounding_box(points) {
+    Ok(#(sw, ne)) -> do_fit_bounds(id, sw.lng, sw.lat, ne.lng, ne.lat, padding)
+    Error(Nil) -> Nil
+  }
+}
+
+/// Compute the south-west / north-east corners covering every point. `Error`
+/// when there are no points to frame.
+fn bounding_box(points: List(LngLat)) -> Result(#(LngLat, LngLat), Nil) {
+  case points {
+    [] -> Error(Nil)
+    [first, ..rest] ->
+      Ok(
+        list.fold(rest, #(first, first), fn(acc, p) {
+          let #(sw, ne) = acc
+          #(
+            LngLat(lng: float.min(sw.lng, p.lng), lat: float.min(sw.lat, p.lat)),
+            LngLat(lng: float.max(ne.lng, p.lng), lat: float.max(ne.lat, p.lat)),
+          )
+        }),
+      )
+  }
 }
 
 fn encode_config(config: Config) -> Json {

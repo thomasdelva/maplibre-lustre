@@ -64,8 +64,12 @@ class MaplibreMap extends HTMLElement {
   #init() {
     if (this.#map || !this.#config || !this.isConnected) return;
 
-    // The element is the map container; it must be a sized block.
+    // The element is the map container; it must be a sized block. Default it to
+    // filling its parent so a forgotten height doesn't render the map invisible
+    // (the most common first-run mistake). Both are overridable: an inline
+    // height/display from the caller's attributes wins.
     if (!this.style.display) this.style.display = "block";
+    if (!this.style.height) this.style.height = "100%";
 
     const cfg = this.#config;
     this.#map = new (maplibre().Map)({

@@ -110,13 +110,12 @@ fn view(model) {
     ])
 
   // Render the element with NO children — it injects MapLibre's own canvas —
-  // give it a stable id and an explicit height, and wire interactions as
-  // attributes.
+  // give it a stable id, and wire interactions as attributes. It fills its
+  // parent by default; pass your own `height` to override.
   maplibre.map(
     map_id,
     config,
     [
-      attribute.style("height", "100%"),
       maplibre.on_marker_click(MarkerClicked),
       maplibre.on_map_click(MapClicked),
     ],
@@ -126,7 +125,8 @@ fn view(model) {
 ```
 
 To move the camera, return a command effect from `update`, e.g.
-`maplibre.fit_bounds(map_id, sw, ne, padding)` to frame a bounding box.
+`maplibre.fit_bounds(map_id, points, padding)` to frame a list of points (the
+bounding box is computed for you).
 
 ## Demo
 
