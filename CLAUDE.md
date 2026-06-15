@@ -120,5 +120,3 @@ cd demo && gleam build --target javascript # build the demo SPA
   note the XSS caveat in docs rather than sanitising).
 - Git: commit as Claude (`git config user.email noreply@anthropic.com`); do not
   amend or reset-author commits that already exist on `origin/main`.
-</content>
-</invoke>
