@@ -1,24 +1,26 @@
 name: CI
 
-# Build-verify the library and the demo on every push and PR. The local
-# Claude Code containers can't reach repo.hex.pm (see CLAUDE.md), so CI is the
-# canonical place the Gleam build is checked.
+# One workflow: always build-verify the library and demo; conditionally publish
+# the demo to GitHub Pages. The local Claude Code containers can't reach
+# repo.hex.pm (see CLAUDE.md), so CI is the canonical place the Gleam build is
+# checked.
 on:
   push:
   pull_request:
+    types: [opened, reopened, synchronize, labeled]
   workflow_dispatch:
 
-# Supersede older in-flight runs for the same ref.
-concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: true
-
+# Least privilege by default; the publish job elevates its own permissions.
 permissions:
   contents: read
 
 jobs:
   build:
+    # Always: verify the library and demo compile, and check formatting.
     runs-on: ubuntu-latest
+    concurrency:
+      group: ci-${{ github.ref }}
+      cancel-in-progress: true
     steps:
       - uses: actions/checkout@v4
 
@@ -41,3 +43,75 @@ jobs:
       - name: Check formatting (library + demo)
         if: ${{ always() }}
         run: gleam format --check src demo/src
+
+  publish:
+    # Conditional publish to the single live Pages site. Runs only on:
+    #   - pushes to main,
+    #   - manual workflow_dispatch,
+    #   - pull requests labelled `test-deploy` — gated to the repo owner on a
+    #     same-repo branch (not forks), so the live URL stays a personal preview.
+    # A bare `on: push:` fires for every branch, so the ref==main check is what
+    # keeps feature-branch pushes from publishing.
+    needs: build
+    if: >-
+      github.event_name == 'workflow_dispatch'
+      || (github.event_name == 'push' && github.ref == 'refs/heads/main')
+      || (github.event_name == 'pull_request'
+          && github.event.pull_request.head.repo.full_name == github.repository
+          && github.actor == github.repository_owner
+          && contains(github.event.pull_request.labels.*.name, 'test-deploy'))
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    # One live site; each new run supersedes any older one still in flight.
+    concurrency:
+      group: pages
+      cancel-in-progress: true
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: "27"
+          gleam-version: "1.17.0"
+
+      - uses: oven-sh/setup-bun@v2
+
+      - name: Compile the demo to JavaScript
+        working-directory: demo
+        run: |
+          gleam deps download
+          gleam build --target javascript
+
+      - name: Bundle the demo
+        working-directory: demo
+        env:
+          # On pull_request, github.ref_name is "<n>/merge"; head_ref is the
+          # actual source branch. On push/dispatch head_ref is empty, so fall
+          # back to ref_name.
+          DEPLOY_BRANCH: ${{ github.head_ref || github.ref_name }}
+        run: |
+          mkdir -p ../_site
+          # Lustre apps don't auto-run; the entry imports and calls `main`.
+          printf "import { main } from './build/dev/javascript/demo/demo.mjs';\nmain();\n" > _entry.mjs
+          bun build ./_entry.mjs --minify --outfile ../_site/demo.mjs
+          cp index.html ../_site/index.html
+          # Record which branch produced this deploy. index.html loads this to
+          # show a badge; it's absent in local dev, where the badge reads
+          # "local dev". Escape backslashes/quotes so any branch name is a valid
+          # JS string literal.
+          branch=${DEPLOY_BRANCH//\\/\\\\}
+          branch=${branch//\"/\\\"}
+          printf 'window.DEPLOY_BRANCH = "%s";\n' "$branch" > ../_site/deploy.js
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+      - id: deployment
+        uses: actions/deploy-pages@v4
