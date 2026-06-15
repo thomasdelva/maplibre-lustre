@@ -77,7 +77,6 @@ class MaplibreMap extends HTMLElement {
 
     this.#map.on("load", () => {
       this.#ready = true;
-      this.dispatchEvent(new CustomEvent("maplibre:ready"));
       if (this.#pendingScene) {
         this.#applyScene(this.#pendingScene);
         this.#pendingScene = null;
@@ -93,21 +92,6 @@ class MaplibreMap extends HTMLElement {
       this.dispatchEvent(
         new CustomEvent("maplibre:click", {
           detail: { lng: e.lngLat.lng, lat: e.lngLat.lat },
-        }),
-      );
-    });
-
-    // Camera observation. We only report it; we never feed it back in.
-    this.#map.on("moveend", () => {
-      const c = this.#map.getCenter();
-      this.dispatchEvent(
-        new CustomEvent("maplibre:moveend", {
-          detail: {
-            center: { lng: c.lng, lat: c.lat },
-            zoom: this.#map.getZoom(),
-            bearing: this.#map.getBearing(),
-            pitch: this.#map.getPitch(),
-          },
         }),
       );
     });
@@ -161,14 +145,7 @@ class MaplibreMap extends HTMLElement {
     this.#markers.set(key, { marker, data });
   }
 
-  // Camera commands. Queued until the map is ready; last one wins.
-  flyTo(lng, lat, zoom, bearing, pitch) {
-    const run = () =>
-      this.#map.flyTo({ center: [lng, lat], zoom, bearing, pitch });
-    if (this.#ready) run();
-    else this.#pendingCamera = run;
-  }
-
+  // Camera command. Queued until the map is ready.
   fitBounds(swLng, swLat, neLng, neLat, padding) {
     const run = () =>
       this.#map.fitBounds(
@@ -190,13 +167,8 @@ if (
   customElements.define("maplibre-map", MaplibreMap);
 }
 
-// Camera commands cross the FFI as plain calls keyed by the element id; the
-// element instance (not a registry) is the handle.
-export function flyTo(id, lng, lat, zoom, bearing, pitch) {
-  const el = document.getElementById(id);
-  if (el && el.flyTo) el.flyTo(lng, lat, zoom, bearing, pitch);
-}
-
+// The camera command crosses the FFI as a plain call keyed by the element id;
+// the element instance (not a registry) is the handle.
 export function fitBounds(id, swLng, swLat, neLng, neLat, padding) {
   const el = document.getElementById(id);
   if (el && el.fitBounds) el.fitBounds(swLng, swLat, neLng, neLat, padding);

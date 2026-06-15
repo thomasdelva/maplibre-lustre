@@ -31,12 +31,12 @@ the marker list, …).
 Data flows one way:
 
 - **content** (the markers) is declared by the scene and reconciled for you;
-- **camera motions** are one-shot command effects — `fly_to`, `fit_bounds`;
+- **camera motion** is a one-shot command effect — `fit_bounds`;
 - **what happened** comes back as messages via `on_*` event attributes —
-  `on_marker_click`, `on_map_click`, `on_move_end`, `on_ready`.
+  `on_marker_click`, `on_map_click`.
 
-Because the camera is never a controlled prop (you command it and observe it,
-but never re-assert it every render), there is no feedback loop to guard
+Because the camera is never a controlled prop (`fit_bounds` is a one-shot
+command, never re-asserted every render), there is no feedback loop to guard
 against.
 
 This library targets **JavaScript only**, and MapLibre is loaded by the host
@@ -126,9 +126,7 @@ fn view(model) {
 ```
 
 To move the camera, return a command effect from `update`, e.g.
-`maplibre.fit_bounds(map_id, sw, ne, padding)` to frame a bounding box (or
-`maplibre.fly_to(map_id, camera)`); observe where the camera ends up with the
-`maplibre.on_move_end(...)` attribute.
+`maplibre.fit_bounds(map_id, sw, ne, padding)` to frame a bounding box.
 
 ## Demo
 

@@ -11,15 +11,14 @@
 //// Data flows one way:
 ////
 ////   - **content** is declared by the scene and reconciled for you,
-////   - **camera motions** are one-shot commands ([`fly_to`](#fly_to),
-////     [`fit_bounds`](#fit_bounds)) returned as effects,
+////   - **camera motion** is a one-shot command ([`fit_bounds`](#fit_bounds))
+////     returned as an effect,
 ////   - **what happened** comes back as messages via the `on_*` event
-////     attributes ([`on_marker_click`](#on_marker_click),
-////     [`on_map_click`](#on_map_click), [`on_move_end`](#on_move_end),
-////     [`on_ready`](#on_ready)).
+////     attributes ([`on_marker_click`](#on_marker_click) and
+////     [`on_map_click`](#on_map_click)).
 ////
-//// Because the camera is never a controlled prop — you command it and observe
-//// it, but never re-assert it on every render — there is no feedback loop to
+//// Because the camera is never a controlled prop — `fit_bounds` is a one-shot
+//// command, never re-asserted on every render — there is no feedback loop to
 //// guard against.
 ////
 //// This library targets JavaScript only. MapLibre itself is expected to be
@@ -40,19 +39,13 @@ pub type LngLat {
 }
 
 /// How the map is first created. `center`/`zoom` are the *initial* camera only;
-/// after creation the map owns its own camera (move it with [`fly_to`](#fly_to)
-/// / [`fit_bounds`](#fit_bounds), observe it with [`on_move_end`](#on_move_end)).
+/// after creation the map owns its own camera (move it with
+/// [`fit_bounds`](#fit_bounds)).
 ///
 /// `style_url` is a MapLibre style document URL — for example
 /// `"https://tiles.openfreemap.org/styles/bright"`, which needs no API key.
 pub type Config {
   Config(style_url: String, center: LngLat, zoom: Float)
-}
-
-/// A camera pose, as reported by [`on_move_end`](#on_move_end) and accepted by
-/// [`fly_to`](#fly_to).
-pub type Camera {
-  Camera(center: LngLat, zoom: Float, bearing: Float, pitch: Float)
 }
 
 /// A single map pin. `html` is arbitrary markup (e.g. an inline SVG) injected as
@@ -111,11 +104,6 @@ pub fn map(
   )
 }
 
-/// Fires once the map has been created and its style has loaded.
-pub fn on_ready(msg: msg) -> Attribute(msg) {
-  event.on("maplibre:ready", decode.success(msg))
-}
-
 /// Fires with a tapped marker's key. Tapping a marker does **not** also fire
 /// [`on_map_click`](#on_map_click).
 pub fn on_marker_click(handler: fn(String) -> msg) -> Attribute(msg) {
@@ -137,41 +125,9 @@ pub fn on_map_click(handler: fn(LngLat) -> msg) -> Attribute(msg) {
   event.on("maplibre:click", decoder)
 }
 
-/// Fires with the new [`Camera`](#Camera) after the camera stops moving (a pan,
-/// zoom, or a [`fly_to`](#fly_to)/[`fit_bounds`](#fit_bounds) settling). This is
-/// how you *observe* the camera; you never feed it back in, so there is no loop.
-pub fn on_move_end(handler: fn(Camera) -> msg) -> Attribute(msg) {
-  let decoder = {
-    use lng <- decode.subfield(["detail", "center", "lng"], decode.float)
-    use lat <- decode.subfield(["detail", "center", "lat"], decode.float)
-    use zoom <- decode.subfield(["detail", "zoom"], decode.float)
-    use bearing <- decode.subfield(["detail", "bearing"], decode.float)
-    use pitch <- decode.subfield(["detail", "pitch"], decode.float)
-    decode.success(
-      handler(Camera(center: LngLat(lng:, lat:), zoom:, bearing:, pitch:)),
-    )
-  }
-  event.on("maplibre:moveend", decoder)
-}
-
-/// Command the camera to animate to a pose. One-shot: it is applied when the
-/// effect runs, never re-asserted. If the map for `id` does not exist yet the
-/// command is queued until it does.
-pub fn fly_to(id: String, camera: Camera) -> Effect(msg) {
-  use _dispatch <- effect.from
-  do_fly_to(
-    id,
-    camera.center.lng,
-    camera.center.lat,
-    camera.zoom,
-    camera.bearing,
-    camera.pitch,
-  )
-}
-
 /// Frame a bounding box, animating the camera so the box (plus `padding` pixels
-/// on every side) is visible. Like [`fly_to`](#fly_to), it is one-shot and
-/// queued until the map exists.
+/// on every side) is visible. A one-shot command: applied when the effect runs,
+/// never re-asserted, and queued until the map for `id` exists.
 pub fn fit_bounds(
   id: String,
   sw: LngLat,
@@ -207,16 +163,6 @@ fn encode_scene(scene: Scene) -> Json {
     ),
   ])
 }
-
-@external(javascript, "./maplibre_ffi.mjs", "flyTo")
-fn do_fly_to(
-  id: String,
-  lng: Float,
-  lat: Float,
-  zoom: Float,
-  bearing: Float,
-  pitch: Float,
-) -> Nil
 
 @external(javascript, "./maplibre_ffi.mjs", "fitBounds")
 fn do_fit_bounds(
