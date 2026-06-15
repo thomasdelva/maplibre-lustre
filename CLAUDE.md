@@ -17,6 +17,13 @@ and camera commands. See `README.md` for the public API.
 - Library source: `src/maplibre.gleam` (+ `src/maplibre_ffi.mjs`).
 - Demo SPA (path-dependency consumer): `demo/`.
 
+The integration seam is the `<maplibre-map>` custom element in
+`src/maplibre_ffi.mjs`: `config` and `scene` arrive as JSON-string attributes,
+and interactions leave as DOM `CustomEvent`s. To extend the public API, follow
+the three mechanics — declarative `Scene` content, one-shot command `Effect`s,
+and `on_*` observation attributes — described in the `TODO(coverage)` roadmap at
+the bottom of `src/maplibre.gleam`.
+
 ## Environment setup (do this first in a fresh container)
 
 ### 1. Toolchain is not pre-installed
@@ -63,6 +70,11 @@ managers", save, and start a **new** session (the policy applies at session
 creation, not mid-run). Docs:
 <https://code.claude.com/docs/en/claude-code-on-the-web#network-access>.
 
+Even better, pair the allowlist with a **setup script** (or a committed
+SessionStart hook) that installs Gleam and runs `gleam deps download` for the
+library and `demo/`, so each session starts with the toolchain and deps ready
+instead of re-installing them.
+
 Until then, CI is the build oracle: `.github/workflows/ci.yml` builds the
 library and demo on every push (GitHub runners can reach `repo.hex.pm`).
 
@@ -85,6 +97,19 @@ cd demo && gleam build --target javascript # build the demo SPA
 # then bundle build/dev/javascript/demo/demo.mjs (exports `main`) and serve it
 # alongside demo/index.html
 ```
+
+## Verifying changes
+
+- `gleam format` / `gleam format --check src demo/src` work **offline** (they
+  need no package downloads) — use them to catch syntax/format errors locally
+  before pushing. CI runs the same `--check`, so format first or it goes red.
+- The full typecheck/build only runs in CI (it needs the blocked Hex CDN): push
+  and watch `.github/workflows/ci.yml`, which builds the library and the demo
+  for the JavaScript target. A green run means it compiled.
+- CI checks *compilation only*, not runtime. To exercise the real map in a
+  browser, label a PR `test-deploy` (repo owner, same-repo branch); the Pages
+  workflow (`.github/workflows/pages.yml`) then publishes the demo to the live
+  site.
 
 ## Conventions
 
