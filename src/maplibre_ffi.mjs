@@ -46,9 +46,6 @@ class MaplibreMap extends HTMLElement {
   // The previous scene object we last applied; `diff_dynamic` diffs it against
   // each incoming scene. Kept in lockstep with `#markers`.
   #prevScene = EMPTY_SCENE;
-  // The most recent scene assigned via the property, reflected back by `get
-  // scene`.
-  #scene = EMPTY_SCENE;
   // A scene object that arrived before the style finished loading, applied on
   // `load`.
   #pendingScene = null;
@@ -56,15 +53,12 @@ class MaplibreMap extends HTMLElement {
   #pendingCamera = null;
 
   // The `scene` DOM property: frameworks (Lustre included) assign a plain
-  // object, so nothing is stringified on the way in.
+  // object, so nothing is stringified on the way in. Write-only — each
+  // assignment is reconciled into the live map; the element keeps no copy to
+  // read back (Lustre diffs its own vdom, never this property).
   set scene(scene) {
-    this.#scene = scene;
     if (this.#ready) this.#applyScene(scene);
     else this.#pendingScene = scene;
-  }
-
-  get scene() {
-    return this.#scene;
   }
 
   attributeChangedCallback(name, _oldValue, value) {

@@ -35,9 +35,10 @@ pub type Op {
   SetHtml(key: String, html: String)
 }
 
-/// One decoded marker row, matching the scene JSON shape
-/// `{markers:[{key,lng,lat,html}]}` produced by `maplibre.encode_scene`. Keep
-/// the two in lockstep: this is the contract the reconciler decodes.
+/// One marker row — the wire shape `{key,lng,lat,html}` that
+/// [`encode_scene`](#encode_scene) writes and [`diff_dynamic`](#diff_dynamic)
+/// decodes. This module is the single source of truth for that shape;
+/// `maplibre.map` builds these from its public `Marker`s.
 pub type Entry {
   Entry(key: String, lng: Float, lat: Float, html: String)
 }
@@ -98,6 +99,23 @@ pub fn diff(prev: List(Entry), next: List(Entry)) -> List(Op) {
 pub fn diff_dynamic(prev: Dynamic, next: Dynamic) -> String {
   let ops = diff(decode_scene(prev), decode_scene(next))
   json.to_string(json.array(ops, encode_op))
+}
+
+/// Encode a marker list as the `{markers:[...]}` scene the `scene` DOM property
+/// carries — the inverse of the decode in [`diff_dynamic`](#diff_dynamic), kept
+/// here beside it so the wire shape lives in one place. `maplibre.map` calls
+/// this with the markers from its public `Scene`.
+pub fn encode_scene(markers: List(Entry)) -> Json {
+  json.object([#("markers", json.array(markers, encode_entry))])
+}
+
+fn encode_entry(entry: Entry) -> Json {
+  json.object([
+    #("key", json.string(entry.key)),
+    #("lng", json.float(entry.lng)),
+    #("lat", json.float(entry.lat)),
+    #("html", json.string(entry.html)),
+  ])
 }
 
 fn index(entries: List(Entry)) -> Dict(String, Entry) {
