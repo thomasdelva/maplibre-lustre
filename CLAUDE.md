@@ -107,9 +107,9 @@ cd demo && gleam build --target javascript # build the demo SPA
   and watch `.github/workflows/ci.yml`, which builds the library and the demo
   for the JavaScript target. A green run means it compiled.
 - CI checks *compilation only*, not runtime. To exercise the real map in a
-  browser, label a PR `test-deploy` (repo owner, same-repo branch); the Pages
-  workflow (`.github/workflows/pages.yml`) then publishes the demo to the live
-  site.
+  browser, push to `main` or run the **CI** workflow manually (Actions → CI →
+  Run workflow) on a branch; the `publish` job then deploys the demo to the live
+  Pages site.
 
 ## Conventions
 

@@ -7,7 +7,6 @@ name: CI
 on:
   push:
   pull_request:
-    types: [opened, reopened, synchronize, labeled]
   workflow_dispatch:
 
 # Least privilege by default; the publish job elevates its own permissions.
@@ -45,21 +44,14 @@ jobs:
         run: gleam format --check src demo/src
 
   publish:
-    # Conditional publish to the single live Pages site. Runs only on:
-    #   - pushes to main,
-    #   - manual workflow_dispatch,
-    #   - pull requests labelled `test-deploy` — gated to the repo owner on a
-    #     same-repo branch (not forks), so the live URL stays a personal preview.
-    # A bare `on: push:` fires for every branch, so the ref==main check is what
+    # Conditional publish to the single live Pages site: pushes to main, or a
+    # manual workflow_dispatch (run it on a branch to preview that branch). A
+    # bare `on: push:` fires for every branch, so the ref==main check is what
     # keeps feature-branch pushes from publishing.
     needs: build
     if: >-
       github.event_name == 'workflow_dispatch'
       || (github.event_name == 'push' && github.ref == 'refs/heads/main')
-      || (github.event_name == 'pull_request'
-          && github.event.pull_request.head.repo.full_name == github.repository
-          && github.actor == github.repository_owner
-          && contains(github.event.pull_request.labels.*.name, 'test-deploy'))
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -91,10 +83,8 @@ jobs:
       - name: Bundle the demo
         working-directory: demo
         env:
-          # On pull_request, github.ref_name is "<n>/merge"; head_ref is the
-          # actual source branch. On push/dispatch head_ref is empty, so fall
-          # back to ref_name.
-          DEPLOY_BRANCH: ${{ github.head_ref || github.ref_name }}
+          # publish only runs on push(main)/dispatch, so ref_name is the branch.
+          DEPLOY_BRANCH: ${{ github.ref_name }}
         run: |
           mkdir -p ../_site
           # Lustre apps don't auto-run; the entry imports and calls `main`.
