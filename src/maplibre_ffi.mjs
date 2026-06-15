@@ -8,6 +8,16 @@
 // `window.maplibregl`. We read it lazily (inside the element) so this module
 // can be imported before the CDN script has run.
 
+// The keyed diff is a pure Gleam function (the functional core). The element
+// is the imperative shell: it asks `diff_json` what changed between two scene
+// JSON strings, then applies the resulting ops to the live map. `reconcile`
+// has no FFI externs, so this import is one-way (no cycle).
+import { diff_json } from "./maplibre/reconcile.mjs";
+
+// The baseline `diff_json` diffs the first scene against, and what the diff
+// resets to on disconnect: an empty marker set.
+const EMPTY_SCENE = '{"markers":[]}';
+
 function maplibre() {
   const gl = globalThis.maplibregl;
   if (!gl) {
@@ -27,9 +37,14 @@ class MaplibreMap extends HTMLElement {
   #map = null;
   #ready = false;
   #config = null;
-  // key -> { marker, data }, so successive scenes can be diffed by key.
+  // key -> live maplibregl.Marker. The diff against the previous scene decides
+  // which of these to add, move, remove, or re-html.
   #markers = new Map();
-  // A scene that arrived before the style finished loading, applied on `load`.
+  // The previous scene as the raw JSON string we last applied; `diff_json`
+  // diffs it against each incoming string. Kept in lockstep with `#markers`.
+  #prevJson = EMPTY_SCENE;
+  // A scene (raw JSON string) that arrived before the style finished loading,
+  // applied on `load`.
   #pendingScene = null;
   // A camera command issued before the map was ready, run once it loads.
   #pendingCamera = null;
@@ -41,9 +56,10 @@ class MaplibreMap extends HTMLElement {
       this.#config = JSON.parse(value);
       this.#init();
     } else if (name === "scene") {
-      const scene = JSON.parse(value);
-      if (this.#ready) this.#applyScene(scene);
-      else this.#pendingScene = scene;
+      // Pass the raw string through: only Strings cross the FFI, so the
+      // decode/diff/encode all happen inside Gleam.
+      if (this.#ready) this.#applyScene(value);
+      else this.#pendingScene = value;
     }
   }
 
@@ -57,6 +73,9 @@ class MaplibreMap extends HTMLElement {
       this.#map = null;
     }
     this.#markers.clear();
+    // Reset the diff baseline too, so a future reconnect re-adds from scratch
+    // instead of issuing moves/updates against markers that no longer exist.
+    this.#prevJson = EMPTY_SCENE;
     this.#ready = false;
   }
 
@@ -97,37 +116,45 @@ class MaplibreMap extends HTMLElement {
     });
   }
 
-  // The keyed diff: the heart of the reconciler. Compare the incoming markers
-  // (by key) against the live ones and issue the minimal set of changes.
-  #applyScene(scene) {
-    const next = new Map((scene.markers || []).map((m) => [m.key, m]));
+  // Reconcile to a new scene. The decision (what changed) is the pure Gleam
+  // `diff_json`; this shell only applies the resulting ops to the live map.
+  #applyScene(json) {
+    const ops = JSON.parse(diff_json(this.#prevJson, json));
+    this.#apply(ops);
+    this.#prevJson = json;
+  }
 
-    for (const [key, entry] of this.#markers) {
-      if (!next.has(key)) {
-        entry.marker.remove();
-        this.#markers.delete(key);
+  // Apply the ordered ops in sequence. Every op but `add` targets an existing
+  // marker, so we look it up once and skip if it's gone — a stray op can never
+  // throw.
+  #apply(ops) {
+    for (const op of ops) {
+      if (op.op === "add") {
+        this.#addMarker(op);
+        continue;
       }
-    }
 
-    for (const [key, data] of next) {
-      const existing = this.#markers.get(key);
-      if (!existing) {
-        this.#addMarker(key, data);
-      } else {
-        if (existing.data.lng !== data.lng || existing.data.lat !== data.lat) {
-          existing.marker.setLngLat([data.lng, data.lat]);
-        }
-        if (existing.data.html !== data.html) {
-          existing.marker.getElement().innerHTML = data.html;
-        }
-        existing.data = data;
+      const marker = this.#markers.get(op.key);
+      if (!marker) continue;
+
+      switch (op.op) {
+        case "remove":
+          marker.remove();
+          this.#markers.delete(op.key);
+          break;
+        case "move":
+          marker.setLngLat([op.lng, op.lat]);
+          break;
+        case "set_html":
+          marker.getElement().innerHTML = op.html;
+          break;
       }
     }
   }
 
-  #addMarker(key, data) {
+  #addMarker({ key, lng, lat, html }) {
     const el = document.createElement("div");
-    el.innerHTML = data.html; // arbitrary SVG/HTML
+    el.innerHTML = html; // arbitrary SVG/HTML
     el.style.cursor = "pointer";
     el.addEventListener("click", (event) => {
       // Keep a marker tap from also reaching the map's background `click`, so
@@ -139,10 +166,10 @@ class MaplibreMap extends HTMLElement {
     });
 
     const marker = new (maplibre().Marker)({ element: el })
-      .setLngLat([data.lng, data.lat])
+      .setLngLat([lng, lat])
       .addTo(this.#map);
 
-    this.#markers.set(key, { marker, data });
+    this.#markers.set(key, marker);
   }
 
   // Camera command. Queued until the map is ready.
