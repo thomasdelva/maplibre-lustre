@@ -21,12 +21,26 @@ popups, or controls — by design.
 ## How it works
 
 The imperative, stateful MapLibre `Map` instance **never lives in your Lustre
-`Model`**. It is held in a registry inside the FFI module, keyed by container
-id, and your `update` loop returns effects that reconcile it. Your model only
-holds serialisable state (the selected id, the marker list, …).
+`Model`**. It lives inside a `<maplibre-map>` custom element. You render that
+element in your `view` and hand it a declarative **`Scene`** — a pure function
+of your model — and the element diffs successive scenes, adding, moving, and
+removing only the markers that changed. Markers are **keyed**, so a pin keeps
+its identity across renders. Your model only holds serialisable state (the
+selected id, the marker list, …).
+
+Data flows one way:
+
+- **content** (the markers) is declared by the scene and reconciled for you;
+- **camera motion** is a one-shot command effect — `fit_bounds`;
+- **what happened** comes back as messages via `on_*` event attributes —
+  `on_marker_click`, `on_map_click`.
+
+Because the camera is never a controlled prop (`fit_bounds` is a one-shot
+command, never re-asserted every render), there is no feedback loop to guard
+against.
 
 This library targets **JavaScript only**, and MapLibre is loaded by the host
-page from a CDN (the wrapper reads `window.maplibregl`) — so the wrapper stays
+page from a CDN (the element reads `window.maplibregl`) — so the wrapper stays
 bundler-agnostic.
 
 ## Installing
@@ -62,52 +76,57 @@ import maplibre.{Config, LngLat, Marker}
 
 const map_id = "map"
 
+const config = Config(
+  style_url: "https://tiles.openfreemap.org/styles/bright",
+  center: LngLat(lng: -9.139, lat: 38.722),
+  zoom: 12.5,
+)
+
 type Msg {
-  MapReady
   MarkerClicked(String)
   MapClicked(LngLat)
 }
 
 fn init(_args) {
-  let config =
-    Config(
-      style_url: "https://tiles.openfreemap.org/styles/bright",
-      center: LngLat(lng: -9.139, lat: 38.722),
-      zoom: 12.5,
-    )
-
-  // Just create the map. `init` dispatches `MapReady` once it exists; place the
-  // markers in response to that, so you never reason about effect ordering.
-  #(Model(selected: None), maplibre.init(map_id, config, MapReady))
+  // Nothing to do up front: the element creates the map when `view` renders it,
+  // and the markers are part of the scene.
+  #(Model(selected: None), effect.none())
 }
 
 fn update(model, msg) {
   case msg {
-    MapReady -> {
-      let markers = [
-        Marker(id: "belem", position: LngLat(-9.2160, 38.6916), html: "<svg>…</svg>"),
-      ]
-      // Place the markers, and listen for taps on the map background.
-      #(model, effect.batch([
-        maplibre.set_markers(map_id, markers, MarkerClicked),
-        maplibre.on_map_click(map_id, MapClicked),
-      ]))
-    }
-    MarkerClicked(id) -> #(Model(selected: Some(id)), effect.none())
+    MarkerClicked(id) -> #(Model(..model, selected: Some(id)), effect.none())
     // Tap empty space to clear the selection (or drop a new marker here).
-    MapClicked(_lng_lat) -> #(Model(selected: None), effect.none())
+    MapClicked(_lng_lat) -> #(Model(..model, selected: None), effect.none())
   }
 }
 
-fn view(_model) {
-  // Give the container a stable id and an explicit height via CSS, and render
-  // it with NO children — MapLibre injects its own canvas.
-  maplibre.container(map_id, [attribute.style("height", "100%")])
+fn view(model) {
+  // The scene is a pure function of the model. Each marker is paired with a
+  // stable key; the element diffs the scene and only touches what changed.
+  let scene =
+    maplibre.scene([
+      #("belem", Marker(position: LngLat(-9.2160, 38.6916), html: "<svg>…</svg>")),
+    ])
+
+  // Render the element with NO children — it injects MapLibre's own canvas —
+  // give it a stable id and an explicit height, and wire interactions as
+  // attributes.
+  maplibre.map(
+    map_id,
+    config,
+    [
+      attribute.style("height", "100%"),
+      maplibre.on_marker_click(MarkerClicked),
+      maplibre.on_map_click(MapClicked),
+    ],
+    scene,
+  )
 }
 ```
 
-`maplibre.fit_bounds(map_id, sw, ne, padding)` frames a bounding box, e.g. when
-the set of points you want in view changes.
+To move the camera, return a command effect from `update`, e.g.
+`maplibre.fit_bounds(map_id, sw, ne, padding)` to frame a bounding box.
 
 ## Demo
 
@@ -122,19 +141,16 @@ by
 ### Deploys
 
 The demo is rebuilt and deployed (via `actions/deploy-pages`) to the single live
-site at `https://thomasdelva.github.io/maplibre-lustre/` on three triggers:
-pushes to `main`, manual `workflow_dispatch`, and pull requests labelled
-**`test-deploy`**. The PR trigger is deliberately a personal playground — it only
-fires for label/pushes by the repo owner on a branch in this repo (not forks) —
-so labelling your own PR `test-deploy` publishes it to the live URL to preview on
-a phone before merging. Each deploy overwrites the previous one (the latest run
-wins; rapid pushes cancel older in-flight ones), and a small badge in the
-bottom-left corner shows which branch produced the current deploy.
+site at `https://thomasdelva.github.io/maplibre-lustre/` on two triggers: pushes
+to `main`, and manual `workflow_dispatch`. To preview a branch before merging,
+run the **CI** workflow manually on it (Actions → CI → Run workflow → pick the
+branch). Each deploy overwrites the previous one (the latest run wins; rapid
+pushes cancel older in-flight ones), and a small badge in the bottom-left corner
+shows which branch produced the current deploy.
 
-This requires two repo settings: Pages **Source** = "GitHub Actions", and the
-`github-pages` environment configured to allow deploys from **all** branches
-(Settings → Environments → `github-pages` → Deployment branches), not just the
-default one.
+This requires Pages **Source** = "GitHub Actions". If you dispatch from a branch
+other than `main`, the `github-pages` environment must also allow deploys from
+that branch (Settings → Environments → `github-pages` → Deployment branches).
 
 To run it locally:
 

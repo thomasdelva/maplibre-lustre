@@ -1,37 +1,45 @@
 //// A minimal [Lustre](https://lustre.build) wrapper around
 //// [MapLibre GL JS](https://maplibre.org/maplibre-gl-js/docs/).
 ////
-//// The surface is intentionally tiny. It covers exactly five things:
+//// The imperative, stateful MapLibre `Map` never lives in your Lustre `Model`.
+//// It lives inside a `<maplibre-map>` custom element: you render that element
+//// in your `view` and hand it a declarative [`Scene`](#Scene) (a pure function
+//// of your model). The element diffs successive scenes and issues the minimal
+//// MapLibre calls — adding, moving, and removing only the markers that changed.
 ////
-////   1. Render a basemap into a container (no API key required).
-////   2. Show markers whose content is arbitrary HTML/SVG.
-////   3. Emit a message when a marker is tapped.
-////   4. Emit a message (with the clicked `LngLat`) when the map background is
-////      tapped — use it to place new markers, or to clear a selection.
-////   5. Frame a set of points with `fit_bounds`.
+//// Data flows one way:
 ////
-//// The imperative, stateful MapLibre `Map` instance never lives in your
-//// Lustre `Model`. It is held in a registry inside the FFI module and is
-//// looked up by container id. Your `update` loop returns effects that
-//// reconcile that live map.
+////   - **content** is declared by the scene and reconciled for you,
+////   - **camera motion** is a one-shot command ([`fit_bounds`](#fit_bounds))
+////     returned as an effect,
+////   - **what happened** comes back as messages via the `on_*` event
+////     attributes ([`on_marker_click`](#on_marker_click) and
+////     [`on_map_click`](#on_map_click)).
+////
+//// Because the camera is never a controlled prop — `fit_bounds` is a one-shot
+//// command, never re-asserted on every render — there is no feedback loop to
+//// guard against.
 ////
 //// This library targets JavaScript only. MapLibre itself is expected to be
-//// loaded by the host page via a CDN `<script>` and `<link>` (the wrapper
-//// reads `window.maplibregl`).
+//// loaded by the host page via a CDN `<script>` and `<link>` (the custom
+//// element reads `window.maplibregl`).
 
-import gleam/json
+import gleam/dynamic/decode
+import gleam/json.{type Json}
 import lustre/attribute.{type Attribute}
 import lustre/effect.{type Effect}
 import lustre/element.{type Element}
-import lustre/element/html
+import lustre/event
 
-/// A longitude/latitude pair, in degrees. Note the field order: MapLibre
-/// works in `[lng, lat]`, and so does this type.
+/// A longitude/latitude pair, in degrees. Note the field order: MapLibre works
+/// in `[lng, lat]`, and so does this type.
 pub type LngLat {
   LngLat(lng: Float, lat: Float)
 }
 
-/// The options used to create a map.
+/// How the map is first created. `center`/`zoom` are the *initial* camera only;
+/// after creation the map owns its own camera (move it with
+/// [`fit_bounds`](#fit_bounds)).
 ///
 /// `style_url` is a MapLibre style document URL — for example
 /// `"https://tiles.openfreemap.org/styles/bright"`, which needs no API key.
@@ -39,99 +47,80 @@ pub type Config {
   Config(style_url: String, center: LngLat, zoom: Float)
 }
 
-/// A single map pin.
+/// A single map pin. `html` is arbitrary markup (e.g. an inline SVG) injected as
+/// the marker element's `innerHTML`.
 ///
-/// `html` is arbitrary markup (e.g. an inline SVG) injected as the marker
-/// element's `innerHTML`. `id` is echoed back to your `on_click` handler when
-/// the marker is tapped.
+/// > Note: `html` is set as `innerHTML`, so treat it as trusted markup — do not
+/// > build it from unsanitised user input.
 pub type Marker {
-  Marker(id: String, position: LngLat, html: String)
+  Marker(position: LngLat, html: String)
 }
 
-/// The element to place in your `view`. Give it a stable `id` and size it with
-/// CSS (an explicit height is required, or the map is invisible).
-///
-/// It renders with **no children** — MapLibre injects its own canvas into it,
-/// so Lustre must not try to diff children into this node.
-pub fn container(id: String, attrs: List(Attribute(msg))) -> Element(msg) {
-  html.div([attribute.id(id), ..attrs], [])
+/// A declarative description of what should be on the map right now. Build it
+/// with [`scene`](#scene), as a pure function of your model, and pass it to
+/// [`map`](#map). The element reconciles successive scenes for you.
+pub opaque type Scene {
+  Scene(markers: List(#(String, Marker)))
 }
 
-/// Create the map. Run this once (e.g. from your app's `init`). It uses
-/// `effect.after_paint` internally so the container element is guaranteed to
-/// exist in the DOM before `new maplibregl.Map(...)` runs.
-///
-/// Once the map has been created, `on_ready` is dispatched to your `update`
-/// loop. Fire [`set_markers`](#set_markers)/[`fit_bounds`](#fit_bounds) in
-/// response to that message — the map is guaranteed to exist by then, so you
-/// never have to reason about effect ordering. (Note: `on_ready` fires when the
-/// map object exists, which is enough for markers and bounds; it does not wait
-/// for the style/tiles to finish loading.)
-pub fn init(id: String, config: Config, on_ready: msg) -> Effect(msg) {
-  use dispatch, _root <- effect.after_paint
-  do_init(
-    id,
-    config.style_url,
-    config.center.lng,
-    config.center.lat,
-    config.zoom,
-  )
-  dispatch(on_ready)
+/// Build a scene from a keyed list of markers. Each marker is paired with a
+/// **stable key** (any unique string); the key is how the element tells one
+/// render's markers from the next, so a marker keeps its identity — and the
+/// element only adds, moves, or removes the ones that actually changed. The key
+/// is also echoed back to [`on_marker_click`](#on_marker_click).
+pub fn scene(markers: List(#(String, Marker))) -> Scene {
+  Scene(markers: markers)
 }
 
-/// Replace all markers on the map.
+/// Render the map. Give it a stable `id` and size it with CSS (an explicit
+/// height is required, or the map is invisible). It renders with **no
+/// children** — the element injects MapLibre's own canvas — and reconciles the
+/// given [`Scene`](#Scene) on every render.
 ///
-/// This is a cheap clear-and-re-add: every existing marker is removed and the
-/// given list is added. That is fine for modest counts (hundreds of pins, not
-/// thousands).
-///
-/// `on_click` turns a tapped marker's `id` into a message for your `update`
-/// loop. The markers cross the FFI boundary as a JSON string rather than as a
-/// Gleam list (a Gleam list is a linked list, not a JS array).
-///
-/// Call this only once the map exists — i.e. in response to [`init`](#init)'s
-/// `on_ready` message, or any time after. If the map does not exist yet this is
-/// a no-op.
-pub fn set_markers(
+/// Wire interactions through `attributes` with the `on_*` helpers below, e.g.
+/// `maplibre.on_marker_click(MarkerClicked)`.
+pub fn map(
   id: String,
-  markers: List(Marker),
-  on_click: fn(String) -> msg,
-) -> Effect(msg) {
-  use dispatch <- effect.from
-  do_set_markers(id, encode_markers(markers), fn(marker_id) {
-    dispatch(on_click(marker_id))
-  })
+  config: Config,
+  attributes: List(Attribute(msg)),
+  scene: Scene,
+) -> Element(msg) {
+  element.element(
+    "maplibre-map",
+    [
+      attribute.id(id),
+      attribute.attribute("config", json.to_string(encode_config(config))),
+      attribute.attribute("scene", json.to_string(encode_scene(scene))),
+      ..attributes
+    ],
+    [],
+  )
 }
 
-/// Register a handler for clicks on the map *background* — that is, anywhere
-/// that is not a marker. The handler receives the clicked [`LngLat`](#LngLat).
-///
-/// This is the primitive behind two common interactions:
-///
-///   - **Placing a new marker**: append a [`Marker`](#Marker) at the clicked
-///     position to your model and re-run [`set_markers`](#set_markers).
-///   - **Clearing a selection**: tapping empty space deselects whatever was
-///     selected.
-///
-/// Tapping a marker fires its own [`set_markers`](#set_markers) `on_click`
-/// handler and does *not* fire this one, so the two never collide.
-///
-/// Registering again replaces the previous handler (it does not stack). Like
-/// [`set_markers`](#set_markers), call this once the map exists (in response to
-/// [`init`](#init)'s `on_ready` message, or later); if the map does not exist
-/// yet this is a no-op.
-pub fn on_map_click(id: String, handler: fn(LngLat) -> msg) -> Effect(msg) {
-  use dispatch <- effect.from
-  do_on_map_click(id, fn(lng, lat) { dispatch(handler(LngLat(lng:, lat:))) })
+/// Fires with a tapped marker's key. Tapping a marker does **not** also fire
+/// [`on_map_click`](#on_map_click).
+pub fn on_marker_click(handler: fn(String) -> msg) -> Attribute(msg) {
+  let decoder = {
+    use id <- decode.subfield(["detail", "id"], decode.string)
+    decode.success(handler(id))
+  }
+  event.on("maplibre:markerclick", decoder)
 }
 
-/// Frame a bounding box, animating the camera so the box (plus `padding`
-/// pixels on every side) is visible. Use this when the set of points you want
-/// in view changes.
-///
-/// Like [`set_markers`](#set_markers), call this once the map exists (in
-/// response to [`init`](#init)'s `on_ready` message, or later). If the map does
-/// not exist yet this is a no-op.
+/// Fires with the clicked [`LngLat`](#LngLat) whenever the map *background* (not
+/// a marker) is tapped. Use it to place a new marker, or to clear a selection.
+pub fn on_map_click(handler: fn(LngLat) -> msg) -> Attribute(msg) {
+  let decoder = {
+    use lng <- decode.subfield(["detail", "lng"], decode.float)
+    use lat <- decode.subfield(["detail", "lat"], decode.float)
+    decode.success(handler(LngLat(lng:, lat:)))
+  }
+  event.on("maplibre:click", decoder)
+}
+
+/// Frame a bounding box, animating the camera so the box (plus `padding` pixels
+/// on every side) is visible. A one-shot command: applied when the effect runs,
+/// never re-asserted, and queued until the map for `id` exists.
 pub fn fit_bounds(
   id: String,
   sw: LngLat,
@@ -142,37 +131,31 @@ pub fn fit_bounds(
   do_fit_bounds(id, sw.lng, sw.lat, ne.lng, ne.lat, padding)
 }
 
-fn encode_markers(markers: List(Marker)) -> String {
-  json.to_string(
-    json.array(markers, fn(m) {
-      json.object([
-        #("id", json.string(m.id)),
-        #("lng", json.float(m.position.lng)),
-        #("lat", json.float(m.position.lat)),
-        #("html", json.string(m.html)),
-      ])
-    }),
-  )
+fn encode_config(config: Config) -> Json {
+  json.object([
+    #("style_url", json.string(config.style_url)),
+    #("lng", json.float(config.center.lng)),
+    #("lat", json.float(config.center.lat)),
+    #("zoom", json.float(config.zoom)),
+  ])
 }
 
-@external(javascript, "./maplibre_ffi.mjs", "init")
-fn do_init(
-  id: String,
-  style: String,
-  lng: Float,
-  lat: Float,
-  zoom: Float,
-) -> Nil
-
-@external(javascript, "./maplibre_ffi.mjs", "setMarkers")
-fn do_set_markers(
-  id: String,
-  markers_json: String,
-  on_click: fn(String) -> Nil,
-) -> Nil
-
-@external(javascript, "./maplibre_ffi.mjs", "onMapClick")
-fn do_on_map_click(id: String, handler: fn(Float, Float) -> Nil) -> Nil
+fn encode_scene(scene: Scene) -> Json {
+  json.object([
+    #(
+      "markers",
+      json.array(scene.markers, fn(entry) {
+        let #(key, marker) = entry
+        json.object([
+          #("key", json.string(key)),
+          #("lng", json.float(marker.position.lng)),
+          #("lat", json.float(marker.position.lat)),
+          #("html", json.string(marker.html)),
+        ])
+      }),
+    ),
+  ])
+}
 
 @external(javascript, "./maplibre_ffi.mjs", "fitBounds")
 fn do_fit_bounds(
@@ -183,3 +166,73 @@ fn do_fit_bounds(
   ne_lat: Float,
   padding: Int,
 ) -> Nil
+// ---------------------------------------------------------------------------
+// TODO(coverage): MapLibre GL JS surface this wrapper does NOT cover, and how
+// to add each piece. Today it covers a deliberately tiny slice — create a
+// basemap (`Config`: style/center/zoom), show keyed HTML markers, report
+// marker and map-background taps, and `fit_bounds`. Everything below is
+// unwrapped, grouped by area and ordered roughly by value.
+//
+// Three mechanics cover almost every addition; pick by the kind of API:
+//   * Declarative content (derived from the model) -> add it to the `Scene`
+//     JSON and extend the keyed reconciler in maplibre_ffi.mjs to diff it.
+//     This is how markers work; sources/layers/popups follow the same shape.
+//   * One-shot command (imperative action) -> a `fn(...) -> Effect`, an FFI
+//     export, and a method on the element queued until `load`. Like fit_bounds.
+//   * Observation (the map reports something) -> an `on_*(handler) ->
+//     Attribute` that decodes a CustomEvent the element dispatches. Like
+//     on_map_click.
+//
+// 1. Map creation options — extend `Config` and the `new maplibregl.Map({...})`
+//    call: bearing, pitch, minZoom/maxZoom, minPitch/maxPitch, maxBounds,
+//    interactive, attributionControl, cooperativeGestures, hash,
+//    renderWorldCopies, locale, fadeDuration. Pure config; cheapest win.
+//
+// 2. Camera — commands mirroring fit_bounds (Effect + FFI + queued method):
+//    jumpTo, easeTo, flyTo, panBy, zoomTo, rotateTo, setBearing, setPitch,
+//    fitScreenCoordinates. Observation: moveend/move/zoom/rotate/pitch events
+//    exposing center/zoom/bearing/pitch (reintroduce a `Camera` type).
+//
+// 3. Map & interaction events — beyond click: dblclick, contextmenu,
+//    mousemove/mousedown/mouseup, mouseenter/mouseleave, wheel,
+//    dragstart/drag/dragend, boxzoom, load (a ready signal), idle, render,
+//    error, resize, and the data lifecycle (data/sourcedata/styledata). Each
+//    is one `on_*` Attribute.
+//
+// 4. Sources + Layers — the big one, and the reason the model stays small.
+//    Sources: geojson, vector, raster, raster-dem, image, video
+//    (addSource/removeSource/getSource, setData). Layers: fill, line, symbol,
+//    circle, heatmap, fill-extrusion, raster, hillshade, background, sky, with
+//    setPaintProperty/setLayoutProperty/setFilter/setLayerZoomRange and
+//    `beforeId` ordering. Model declaratively: add `sources` and `layers`
+//    (keyed, like markers) to the `Scene` and diff them in the reconciler
+//    (add/remove/update by id; layers also need order handling). Both must wait
+//    for style load — queue like the scene does today. Unlocks clustering (a
+//    geojson option) and data-driven styling.
+//
+// 5. Feature state & hit-testing — needs (4) first: setFeatureState/
+//    removeFeatureState for hover/selection styling, queryRenderedFeatures/
+//    querySourceFeatures for "what's under the cursor", project/unproject for
+//    lng-lat <-> pixel. Layer-scoped events (`map.on('click', layerId, ...)`)
+//    are a layer-keyed variant of the on_* Attributes.
+//
+// 6. Controls — NavigationControl, GeolocateControl, ScaleControl,
+//    FullscreenControl, AttributionControl, GlobeControl, and custom controls
+//    (addControl/removeControl). Add-once and position-keyed; expose as
+//    `Config` flags or `Scene` entries.
+//
+// 7. Popups & richer markers — the Popup class (setHTML/setLngLat, anchor,
+//    offset, closeOnClick) as scene content; and marker options we omit:
+//    draggable (+ drag events), anchor, offset, rotation, color, opacity,
+//    setPopup. Extend `Marker` and the marker reconciler.
+//
+// 8. Style & runtime visuals — setStyle (swap basemap at runtime), addImage/
+//    loadImage (icons for symbol layers), setProjection({type:'globe'}) and its
+//    atmosphere, setTerrain (3D; needs a raster-dem source), setSky/setFog,
+//    setLight. Globe/terrain apply only after style load — queue like the
+//    scene. Custom WebGL layers (CustomLayerInterface) enable deck.gl/three.js.
+//
+// Outside the Map class, setRTLTextPlugin (RTL labels) and addProtocol (e.g.
+// pmtiles) are global one-time registrations — best done in the host page, not
+// the wrapper.
+// ---------------------------------------------------------------------------
