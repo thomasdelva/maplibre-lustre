@@ -4,10 +4,8 @@
 // describing the markers), and the element reconciles the scene into the map,
 // adding, moving, and removing only the markers that changed.
 //
-// `scene` is a property rather than a string attribute so the object crosses
-// without a JSON round-trip; for plain-HTML or attribute-only consumers the
-// `scene` *attribute* (a JSON string) is still accepted and funnels through the
-// same setter.
+// `scene` is a DOM property (not a string attribute), so the object crosses
+// without a JSON round-trip.
 //
 // MapLibre is loaded by the host page via a CDN <script>, exposing the global
 // `window.maplibregl`. We read it lazily (inside the element) so this module
@@ -36,7 +34,7 @@ function maplibre() {
 
 class MaplibreMap extends HTMLElement {
   static get observedAttributes() {
-    return ["config", "scene"];
+    return ["config"];
   }
 
   #map = null;
@@ -58,8 +56,7 @@ class MaplibreMap extends HTMLElement {
   #pendingCamera = null;
 
   // The `scene` DOM property: frameworks (Lustre included) assign a plain
-  // object, so nothing is stringified on the way in. The attribute fallback
-  // below routes through here too.
+  // object, so nothing is stringified on the way in.
   set scene(scene) {
     this.#scene = scene;
     if (this.#ready) this.#applyScene(scene);
@@ -71,16 +68,9 @@ class MaplibreMap extends HTMLElement {
   }
 
   attributeChangedCallback(name, _oldValue, value) {
-    if (value == null) return;
-
-    if (name === "config") {
+    if (name === "config" && value != null) {
       this.#config = JSON.parse(value);
       this.#init();
-    } else if (name === "scene") {
-      // Attribute fallback for plain-HTML / attribute-only consumers: the scene
-      // arrives as a JSON string. Parse it into the object shape the property
-      // carries so both inputs share one path.
-      this.scene = JSON.parse(value);
     }
   }
 
