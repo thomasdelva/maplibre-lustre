@@ -3,10 +3,11 @@
 A minimal [Lustre](https://lustre.build) wrapper around
 [MapLibre GL JS](https://maplibre.org/maplibre-gl-js/docs/).
 
-The surface is intentionally tiny. It does exactly five things:
+The surface is intentionally tiny. It does exactly six things:
 
 1. **Render a basemap** into a container — no API key (works great with
-   [OpenFreeMap](https://openfreemap.org) vector tiles).
+   [OpenFreeMap](https://openfreemap.org) vector tiles) — opening either
+   centred on a point or fitted to a bounding box.
 2. **Show markers whose content is arbitrary HTML/SVG**, so each pin can be a
    bespoke graphic (e.g. an inline SVG).
 3. **Emit a message when a marker is tapped**, to keep the map in sync with a
@@ -14,6 +15,10 @@ The surface is intentionally tiny. It does exactly five things:
 4. **Emit a message when the map background is tapped** (with the clicked
    `LngLat`), so you can place new markers or clear a selection.
 5. **Frame a set of points** with `fit_bounds` when the selection changes.
+6. **Report the visible bounds as the camera settles** with `on_move`, and
+   serialise them (`bounds_to_json` / `bounds_from_json`) so a viewport can be
+   persisted and restored — there's a tiny `maplibre/storage` helper for
+   `localStorage`.
 
 That is the whole API. There are no GeoJSON sources, style layers, clustering,
 popups, or controls — by design.
@@ -33,7 +38,8 @@ Data flows one way:
 - **content** (the markers) is declared by the scene and reconciled for you;
 - **camera motion** is a one-shot command effect — `fit_bounds`;
 - **what happened** comes back as messages via `on_*` event attributes —
-  `on_marker_click`, `on_map_click`.
+  `on_marker_click`, `on_map_click`, and `on_move` (the visible bounds as the
+  camera settles).
 
 Because the camera is never a controlled prop (`fit_bounds` is a one-shot
 command, never re-asserted every render), there is no feedback loop to guard
@@ -72,14 +78,13 @@ render with broken positioning):
 ## Usage
 
 ```gleam
-import maplibre.{Config, LngLat, Marker}
+import maplibre.{Centered, Config, LngLat, Marker}
 
 const map_id = "map"
 
 const config = Config(
   style_url: "https://tiles.openfreemap.org/styles/bright",
-  center: LngLat(lng: -9.139, lat: 38.722),
-  zoom: 12.5,
+  view: Centered(center: LngLat(lng: -9.139, lat: 38.722), zoom: 12.5),
 )
 
 type Msg {
@@ -128,13 +133,57 @@ fn view(model) {
 To move the camera, return a command effect from `update`, e.g.
 `maplibre.fit_bounds(map_id, sw, ne, padding)` to frame a bounding box.
 
+### Remembering the viewport
+
+`on_move` reports the visible `Bounds` each time the camera settles. Persist
+them, then **open the map `Fitted` to the saved box** on the next visit so it
+appears where the user left it — instantly, with no post-load pan (the bounds
+become the map's initial camera):
+
+```gleam
+import maplibre.{Centered, Config, Fitted}
+import maplibre/storage
+
+const bounds_key = "my-app:bounds"
+
+fn init(_args) {
+  // Read the saved viewport synchronously and use it as the initial view.
+  let view = case storage.get(bounds_key) {
+    Ok(saved) ->
+      case maplibre.bounds_from_json(saved) {
+        Ok(bounds) -> Fitted(bounds:, padding: 0)
+        Error(_) -> default_view
+      }
+    Error(_) -> default_view
+  }
+  #(Model(config: Config(style_url:, view:), ..), effect.none())
+}
+
+fn update(model, msg) {
+  case msg {
+    // Persist every settled viewport.
+    ViewportChanged(bounds) ->
+      #(model, storage.set(bounds_key, maplibre.bounds_to_json(bounds)))
+    // …
+  }
+}
+
+// …and wire the observation as an attribute on the element:
+//   maplibre.on_move(ViewportChanged)
+```
+
+`maplibre/storage` is a thin, defensive wrapper over `localStorage`: `get`
+returns `Result(String, Nil)` and `set` / `remove` are effects. It degrades
+gracefully when storage is unavailable (private mode, disabled cookies, …).
+
 ## Demo
 
 [`demo/`](demo/) is a separate Lustre SPA that consumes this library via a path
 dependency and exercises the whole surface: an OpenFreeMap basemap, four Lisbon
 pins (one rendered as a two-colour pie), tap-to-select updating an on-screen
 label, an "Add pin" mode that drops new markers where you tap, tap-empty-space
-to clear the selection, and a "Fit all" button. It is deployed to GitHub Pages
+to clear the selection, a "Fit all" button, and viewport persistence (pan/zoom,
+reload, and the map reopens where you left it). It is deployed to GitHub Pages
 by
 [`.github/workflows/pages.yml`](.github/workflows/pages.yml).
 

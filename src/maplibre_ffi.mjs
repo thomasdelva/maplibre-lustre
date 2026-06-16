@@ -103,12 +103,20 @@ class MaplibreMap extends HTMLElement {
     if (!this.style.display) this.style.display = "block";
 
     const cfg = this.#config;
-    this.#map = new (maplibre().Map)({
-      container: this,
-      style: cfg.style_url,
-      center: [cfg.lng, cfg.lat],
-      zoom: cfg.zoom,
-    });
+    const options = { container: this, style: cfg.style_url };
+    if (cfg.kind === "fitted") {
+      // Open already framed to the box (no animation) — restores a saved
+      // viewport so the map appears where it was left, with no post-load pan.
+      options.bounds = [
+        [cfg.sw_lng, cfg.sw_lat],
+        [cfg.ne_lng, cfg.ne_lat],
+      ];
+      options.fitBoundsOptions = { padding: cfg.padding };
+    } else {
+      options.center = [cfg.lng, cfg.lat];
+      options.zoom = cfg.zoom;
+    }
+    this.#map = new (maplibre().Map)(options);
 
     this.#map.on("load", () => {
       this.#ready = true;
@@ -127,6 +135,24 @@ class MaplibreMap extends HTMLElement {
       this.dispatchEvent(
         new CustomEvent("maplibre:click", {
           detail: { lng: e.lngLat.lng, lat: e.lngLat.lat },
+        }),
+      );
+    });
+
+    // Report the visible bounds whenever the camera settles, so callers can
+    // persist and later restore the viewport.
+    this.#map.on("moveend", () => {
+      const b = this.#map.getBounds();
+      const sw = b.getSouthWest();
+      const ne = b.getNorthEast();
+      this.dispatchEvent(
+        new CustomEvent("maplibre:moveend", {
+          detail: {
+            sw_lng: sw.lng,
+            sw_lat: sw.lat,
+            ne_lng: ne.lng,
+            ne_lat: ne.lat,
+          },
         }),
       );
     });

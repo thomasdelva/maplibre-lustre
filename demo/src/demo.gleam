@@ -7,7 +7,8 @@
 ////     the model re-renders the scene, and the element's keyed diff adds just
 ////     the one new pin,
 ////   - clear the selection by tapping empty space,
-////   - frame all the points with a "Fit all" button.
+////   - frame all the points with a "Fit all" button,
+////   - remember the last viewport in localStorage and reopen there next visit.
 
 import gleam/float
 import gleam/int
@@ -19,13 +20,19 @@ import lustre/effect.{type Effect}
 import lustre/element.{type Element}
 import lustre/element/html
 import lustre/event
-import maplibre.{type LngLat, Config, LngLat, Marker}
+import maplibre.{type Bounds, type Config, type LngLat, Config, LngLat, Marker}
+import maplibre/storage
 
 // The id of the map element. Stable for the lifetime of the app.
 const map_id = "map"
 
-const map_config = Config(
-  style_url: "https://tiles.openfreemap.org/styles/bright",
+// localStorage key under which we persist the last visible bounds.
+const bounds_key = "maplibre-lustre:demo:bounds"
+
+const style_url = "https://tiles.openfreemap.org/styles/bright"
+
+// Where the map opens the first time, before any saved viewport exists.
+const default_view = maplibre.Centered(
   center: LngLat(lng: -9.139, lat: 38.722),
   zoom: 12.5,
 )
@@ -79,8 +86,9 @@ pub fn main() {
 type Model {
   // `places` grows at runtime as pins are dropped. `adding` toggles "tap the
   // map to drop a pin" mode, and `next_id` keeps dropped pins uniquely
-  // identified.
+  // identified. `config` is the initial map view, chosen once in `init`.
   Model(
+    config: Config,
     places: List(Place),
     selected: Option(String),
     adding: Bool,
@@ -93,13 +101,32 @@ type Msg {
   MapClicked(position: LngLat)
   ToggleAdding
   FitAllClicked
+  // Fired by `maplibre.on_move` whenever the camera settles.
+  ViewportChanged(bounds: Bounds)
 }
 
 fn init(_args) -> #(Model, Effect(Msg)) {
-  // Nothing to do up front: the map is created by the `<maplibre-map>` element
-  // when `view` renders it, and the markers are part of the scene.
+  // Read the saved viewport synchronously and open the map directly framed to
+  // it (a `Fitted` view), so it appears where the user left it with no post-load
+  // pan. If nothing valid is stored, fall back to the default centred view.
+  let view = case storage.get(bounds_key) {
+    Ok(saved) ->
+      case maplibre.bounds_from_json(saved) {
+        Ok(bounds) -> maplibre.Fitted(bounds:, padding: 0)
+        Error(_) -> default_view
+      }
+    Error(_) -> default_view
+  }
+
   let model =
-    Model(places: initial_places, selected: None, adding: False, next_id: 1)
+    Model(
+      config: Config(style_url:, view:),
+      places: initial_places,
+      selected: None,
+      adding: False,
+      next_id: 1,
+    )
+
   #(model, effect.none())
 }
 
@@ -122,6 +149,12 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       let #(sw, ne) = bounds(model.places)
       #(model, maplibre.fit_bounds(map_id, sw, ne, 60))
     }
+
+    // Persist every settled viewport, so the next visit reopens here.
+    ViewportChanged(bounds) -> #(
+      model,
+      storage.set(bounds_key, maplibre.bounds_to_json(bounds)),
+    )
   }
 }
 
@@ -154,12 +187,13 @@ fn view(model: Model) -> Element(Msg) {
       // no children, and hand it the scene derived from the model.
       maplibre.map(
         map_id,
-        map_config,
+        model.config,
         [
           attribute.style("position", "absolute"),
           attribute.style("inset", "0"),
           maplibre.on_marker_click(MarkerClicked),
           maplibre.on_map_click(MapClicked),
+          maplibre.on_move(ViewportChanged),
         ],
         scene(model),
       ),

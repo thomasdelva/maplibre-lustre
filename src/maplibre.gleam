@@ -13,8 +13,9 @@
 ////   - **camera motion** is a one-shot command ([`fit_bounds`](#fit_bounds))
 ////     returned as an effect,
 ////   - **what happened** comes back as messages via the `on_*` event
-////     attributes ([`on_marker_click`](#on_marker_click) and
-////     [`on_map_click`](#on_map_click)).
+////     attributes ([`on_marker_click`](#on_marker_click),
+////     [`on_map_click`](#on_map_click), and [`on_move`](#on_move), which
+////     reports the visible [`Bounds`](#Bounds) as the camera settles).
 ////
 //// Because the camera is never a controlled prop — `fit_bounds` is a one-shot
 //// command, never re-asserted on every render — there is no feedback loop to
@@ -27,6 +28,7 @@
 import gleam/dynamic/decode
 import gleam/json.{type Json}
 import gleam/list
+import gleam/result
 import lustre/attribute.{type Attribute}
 import lustre/effect.{type Effect}
 import lustre/element.{type Element}
@@ -39,14 +41,35 @@ pub type LngLat {
   LngLat(lng: Float, lat: Float)
 }
 
-/// How the map is first created. `center`/`zoom` are the *initial* camera only;
-/// after creation the map owns its own camera (move it with
-/// [`fit_bounds`](#fit_bounds)).
+/// A geographic bounding box: its south-west and north-east corners. This is
+/// what [`on_move`](#on_move) reports as the visible area. Serialise one with
+/// [`bounds_to_json`](#bounds_to_json) to persist a viewport and restore it
+/// later by opening the map [`Fitted`](#View) to it.
+pub type Bounds {
+  Bounds(sw: LngLat, ne: LngLat)
+}
+
+/// How the map is first framed — the *initial* camera only. After creation the
+/// map owns its camera (move it with [`fit_bounds`](#fit_bounds)).
+///
+///   - `Centered` opens at a point and zoom level.
+///   - `Fitted` opens already fitted to a [`Bounds`](#Bounds) (plus `padding`
+///     pixels on every side), applied at construction with **no animation**.
+///     Read a saved viewport synchronously and open `Fitted` to it, so the map
+///     appears where the user left it instead of flying there after load.
+pub type View {
+  Centered(center: LngLat, zoom: Float)
+  Fitted(bounds: Bounds, padding: Int)
+}
+
+/// How the map is first created.
 ///
 /// `style_url` is a MapLibre style document URL — for example
 /// `"https://tiles.openfreemap.org/styles/bright"`, which needs no API key.
+///
+/// `view` is the initial camera (see [`View`](#View)).
 pub type Config {
-  Config(style_url: String, center: LngLat, zoom: Float)
+  Config(style_url: String, view: View)
 }
 
 /// A single map pin. `html` is arbitrary markup (e.g. an inline SVG) injected as
@@ -124,26 +147,102 @@ pub fn on_map_click(handler: fn(LngLat) -> msg) -> Attribute(msg) {
   event.on("maplibre:click", decoder)
 }
 
+/// Fires with the map's visible [`Bounds`](#Bounds) each time the camera settles
+/// after a pan or zoom (MapLibre's `moveend`). Persist it — e.g. with
+/// [`bounds_to_json`](#bounds_to_json) and the `maplibre/storage` helper — and
+/// open the map [`Fitted`](#View) to it next time, so it reopens where the user
+/// left it.
+pub fn on_move(handler: fn(Bounds) -> msg) -> Attribute(msg) {
+  let decoder = {
+    use sw_lng <- decode.subfield(["detail", "sw_lng"], decode.float)
+    use sw_lat <- decode.subfield(["detail", "sw_lat"], decode.float)
+    use ne_lng <- decode.subfield(["detail", "ne_lng"], decode.float)
+    use ne_lat <- decode.subfield(["detail", "ne_lat"], decode.float)
+    decode.success(
+      handler(Bounds(
+        sw: LngLat(lng: sw_lng, lat: sw_lat),
+        ne: LngLat(lng: ne_lng, lat: ne_lat),
+      )),
+    )
+  }
+  event.on("maplibre:moveend", decoder)
+}
+
 /// Frame a bounding box, animating the camera so the box (plus `padding` pixels
 /// on every side) is visible. A one-shot command: applied when the effect runs,
 /// never re-asserted, and queued until the map for `id` exists.
+///
+/// (To open the map *already* framed to a box — e.g. restoring a saved
+/// viewport — use a [`Fitted`](#View) view instead; that applies at creation
+/// with no animation.)
+///
+/// Runs via `after_paint`, so the `<maplibre-map>` element is guaranteed to be
+/// in the DOM when looked up — even when called from `init`, before the first
+/// paint, where a plain effect would find no element and be a silent no-op.
 pub fn fit_bounds(
   id: String,
   sw: LngLat,
   ne: LngLat,
   padding: Int,
 ) -> Effect(msg) {
-  use _dispatch <- effect.from
+  use _dispatch, _root <- effect.after_paint
   do_fit_bounds(id, sw.lng, sw.lat, ne.lng, ne.lat, padding)
 }
 
+/// Serialise [`Bounds`](#Bounds) to a compact JSON string, ready to hand to a
+/// store such as `maplibre/storage`. Round-trips with
+/// [`bounds_from_json`](#bounds_from_json).
+pub fn bounds_to_json(bounds: Bounds) -> String {
+  json.to_string(
+    json.object([
+      #("sw", encode_lng_lat(bounds.sw)),
+      #("ne", encode_lng_lat(bounds.ne)),
+    ]),
+  )
+}
+
+/// Parse [`Bounds`](#Bounds) produced by [`bounds_to_json`](#bounds_to_json).
+/// Returns `Error(Nil)` if the string is missing or malformed, so a corrupt or
+/// absent saved value simply falls back to your default view.
+pub fn bounds_from_json(encoded: String) -> Result(Bounds, Nil) {
+  json.parse(encoded, bounds_decoder())
+  |> result.replace_error(Nil)
+}
+
+fn bounds_decoder() -> decode.Decoder(Bounds) {
+  use sw <- decode.field("sw", lng_lat_decoder())
+  use ne <- decode.field("ne", lng_lat_decoder())
+  decode.success(Bounds(sw:, ne:))
+}
+
+fn lng_lat_decoder() -> decode.Decoder(LngLat) {
+  use lng <- decode.field("lng", decode.float)
+  use lat <- decode.field("lat", decode.float)
+  decode.success(LngLat(lng:, lat:))
+}
+
+fn encode_lng_lat(p: LngLat) -> Json {
+  json.object([#("lng", json.float(p.lng)), #("lat", json.float(p.lat))])
+}
+
 fn encode_config(config: Config) -> Json {
-  json.object([
-    #("style_url", json.string(config.style_url)),
-    #("lng", json.float(config.center.lng)),
-    #("lat", json.float(config.center.lat)),
-    #("zoom", json.float(config.zoom)),
-  ])
+  let view = case config.view {
+    Centered(center:, zoom:) -> [
+      #("kind", json.string("centered")),
+      #("lng", json.float(center.lng)),
+      #("lat", json.float(center.lat)),
+      #("zoom", json.float(zoom)),
+    ]
+    Fitted(bounds:, padding:) -> [
+      #("kind", json.string("fitted")),
+      #("sw_lng", json.float(bounds.sw.lng)),
+      #("sw_lat", json.float(bounds.sw.lat)),
+      #("ne_lng", json.float(bounds.ne.lng)),
+      #("ne_lat", json.float(bounds.ne.lat)),
+      #("padding", json.int(padding)),
+    ]
+  }
+  json.object([#("style_url", json.string(config.style_url)), ..view])
 }
 
 // Flatten the public `Scene` into the reconciler's wire rows; `reconcile` owns
@@ -174,9 +273,10 @@ fn do_fit_bounds(
 // ---------------------------------------------------------------------------
 // TODO(coverage): MapLibre GL JS surface this wrapper does NOT cover, and how
 // to add each piece. Today it covers a deliberately tiny slice — create a
-// basemap (`Config`: style/center/zoom), show keyed HTML markers, report
-// marker and map-background taps, and `fit_bounds`. Everything below is
-// unwrapped, grouped by area and ordered roughly by value.
+// basemap (`Config`: style + a `View` that opens centred or fitted to bounds),
+// show keyed HTML markers, report marker/map taps and camera moves
+// (`on_move`), and `fit_bounds`. Everything below is unwrapped, grouped by area
+// and ordered roughly by value.
 //
 // Three mechanics cover almost every addition; pick by the kind of API:
 //   * Declarative content (derived from the model) -> add it to the `Scene`
