@@ -1,22 +1,25 @@
 // The `<maplibre-map>` custom element: the live, mutable MapLibre `Map` lives
-// here, never in the Gleam model. Lustre renders the element and sets two
-// string attributes — `config` (init-only) and `scene` (a JSON description of
-// the markers) — and the element reconciles the scene into the map, adding,
-// moving, and removing only the markers that changed.
+// here, never in the Gleam model. Lustre renders the element, sets the `config`
+// (init-only) string attribute and the `scene` DOM *property* (a plain object
+// describing the markers), and the element reconciles the scene into the map,
+// adding, moving, and removing only the markers that changed.
+//
+// `scene` is a DOM property (not a string attribute), so the object crosses
+// without a JSON round-trip.
 //
 // MapLibre is loaded by the host page via a CDN <script>, exposing the global
 // `window.maplibregl`. We read it lazily (inside the element) so this module
 // can be imported before the CDN script has run.
 
 // The keyed diff is a pure Gleam function (the functional core). The element
-// is the imperative shell: it asks `diff_json` what changed between two scene
-// JSON strings, then applies the resulting ops to the live map. `reconcile`
+// is the imperative shell: it asks `diff_dynamic` what changed between two
+// scene objects, then applies the resulting ops to the live map. `reconcile`
 // has no FFI externs, so this import is one-way (no cycle).
-import { diff_json } from "./maplibre/reconcile.mjs";
+import { diff_dynamic } from "./maplibre/reconcile.mjs";
 
-// The baseline `diff_json` diffs the first scene against, and what the diff
+// The baseline `diff_dynamic` diffs the first scene against, and what the diff
 // resets to on disconnect: an empty marker set.
-const EMPTY_SCENE = '{"markers":[]}';
+const EMPTY_SCENE = { markers: [] };
 
 function maplibre() {
   const gl = globalThis.maplibregl;
@@ -31,7 +34,7 @@ function maplibre() {
 
 class MaplibreMap extends HTMLElement {
   static get observedAttributes() {
-    return ["config", "scene"];
+    return ["config"];
   }
 
   #map = null;
@@ -40,31 +43,44 @@ class MaplibreMap extends HTMLElement {
   // key -> live maplibregl.Marker. The diff against the previous scene decides
   // which of these to add, move, remove, or re-html.
   #markers = new Map();
-  // The previous scene as the raw JSON string we last applied; `diff_json`
-  // diffs it against each incoming string. Kept in lockstep with `#markers`.
-  #prevJson = EMPTY_SCENE;
-  // A scene (raw JSON string) that arrived before the style finished loading,
-  // applied on `load`.
+  // The previous scene object we last applied; `diff_dynamic` diffs it against
+  // each incoming scene. Kept in lockstep with `#markers`.
+  #prevScene = EMPTY_SCENE;
+  // A scene object that arrived before the style finished loading, applied on
+  // `load`.
   #pendingScene = null;
   // A camera command issued before the map was ready, run once it loads.
   #pendingCamera = null;
 
-  attributeChangedCallback(name, _oldValue, value) {
-    if (value == null) return;
+  // The `scene` DOM property: frameworks (Lustre included) assign a plain
+  // object, so nothing is stringified on the way in. Write-only — each
+  // assignment is reconciled into the live map; the element keeps no copy to
+  // read back (Lustre diffs its own vdom, never this property).
+  set scene(scene) {
+    if (this.#ready) this.#applyScene(scene);
+    else this.#pendingScene = scene;
+  }
 
-    if (name === "config") {
+  attributeChangedCallback(name, _oldValue, value) {
+    if (name === "config" && value != null) {
       this.#config = JSON.parse(value);
       this.#init();
-    } else if (name === "scene") {
-      // Pass the raw string through: only Strings cross the FFI, so the
-      // decode/diff/encode all happen inside Gleam.
-      if (this.#ready) this.#applyScene(value);
-      else this.#pendingScene = value;
     }
   }
 
   connectedCallback() {
+    // A property assigned before the element was upgraded shadows this accessor
+    // with an own data property; reclaim it so the assignment isn't lost.
+    this.#upgradeProperty("scene");
     this.#init();
+  }
+
+  #upgradeProperty(name) {
+    if (Object.prototype.hasOwnProperty.call(this, name)) {
+      const value = this[name];
+      delete this[name];
+      this[name] = value;
+    }
   }
 
   disconnectedCallback() {
@@ -75,7 +91,7 @@ class MaplibreMap extends HTMLElement {
     this.#markers.clear();
     // Reset the diff baseline too, so a future reconnect re-adds from scratch
     // instead of issuing moves/updates against markers that no longer exist.
-    this.#prevJson = EMPTY_SCENE;
+    this.#prevScene = EMPTY_SCENE;
     this.#ready = false;
   }
 
@@ -117,11 +133,11 @@ class MaplibreMap extends HTMLElement {
   }
 
   // Reconcile to a new scene. The decision (what changed) is the pure Gleam
-  // `diff_json`; this shell only applies the resulting ops to the live map.
-  #applyScene(json) {
-    const ops = JSON.parse(diff_json(this.#prevJson, json));
+  // `diff_dynamic`; this shell only applies the resulting ops to the live map.
+  #applyScene(scene) {
+    const ops = JSON.parse(diff_dynamic(this.#prevScene, scene));
     this.#apply(ops);
-    this.#prevJson = json;
+    this.#prevScene = scene;
   }
 
   // Apply the ordered ops in sequence. Every op but `add` targets an existing

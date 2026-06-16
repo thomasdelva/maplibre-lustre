@@ -1,6 +1,6 @@
 //// The **functional core** of the marker reconciler: a pure, typed keyed diff
-//// over the scene's markers, plus a thin JSON wrapper that is the only thing
-//// the JavaScript shell (`maplibre_ffi.mjs`) calls. There are no `@external`
+//// over the scene's markers, plus a thin wrapper that is the only thing the
+//// JavaScript shell (`maplibre_ffi.mjs`) calls. There are no `@external`
 //// declarations here, so this module never imports the FFI — the import goes
 //// one way (shell -> compiled `reconcile.mjs`) and there is no cycle.
 ////
@@ -9,8 +9,16 @@
 //// the decision (what changed) here, separate from the application (how to
 //// apply it), is what makes the logic unit-testable under `gleeunit` with no
 //// DOM or `maplibregl` mock.
+////
+//// The shell hands each scene across as the `scene` DOM property — a plain JS
+//// value Lustre sets without a JSON round-trip — so [`diff_dynamic`](#diff_dynamic)
+//// takes the scenes as [`Dynamic`](https://hexdocs.pm/gleam_stdlib/gleam/dynamic.html#Dynamic)
+//// and decodes them with `decode.run`. Only `Dynamic` in and a JSON `String`
+//// out cross the boundary: no Gleam list/record is ever marshalled at the JS
+//// call site.
 
 import gleam/dict.{type Dict}
+import gleam/dynamic.{type Dynamic}
 import gleam/dynamic/decode
 import gleam/json.{type Json}
 import gleam/list
@@ -27,9 +35,10 @@ pub type Op {
   SetHtml(key: String, html: String)
 }
 
-/// One decoded marker row, matching the scene JSON shape
-/// `{markers:[{key,lng,lat,html}]}` produced by `maplibre.encode_scene`. Keep
-/// the two in lockstep: this is the contract the reconciler decodes.
+/// One marker row — the wire shape `{key,lng,lat,html}` that
+/// [`encode_scene`](#encode_scene) writes and [`diff_dynamic`](#diff_dynamic)
+/// decodes. This module is the single source of truth for that shape;
+/// `maplibre.map` builds these from its public `Marker`s.
 pub type Entry {
   Entry(key: String, lng: Float, lat: Float, html: String)
 }
@@ -79,14 +88,34 @@ pub fn diff(prev: List(Entry), next: List(Entry)) -> List(Op) {
   list.append(removes, upserts)
 }
 
-/// The FFI boundary: only `String`s cross, so no Gleam list/custom-type
-/// marshalling happens at the JS call site — decode and encode both run here.
-/// Decode both scene JSON strings into `List(Entry)`, [`diff`](#diff) them, and
-/// encode the ops back to a JSON array. Malformed input decodes to an empty
-/// marker list (treated as "no markers").
-pub fn diff_json(prev_json: String, next_json: String) -> String {
-  let ops = diff(decode_entries(prev_json), decode_entries(next_json))
+/// The FFI boundary. The shell passes the previous and next scenes as the
+/// already-parsed JS values it holds (the `scene` DOM property), so they arrive
+/// as `Dynamic` and are decoded with `decode.run` — no `json.parse`. Only
+/// `Dynamic` crosses in and a JSON `String` crosses out, so no Gleam
+/// list/custom-type marshalling happens at the JS call site. Decode both scenes
+/// into `List(Entry)`, [`diff`](#diff) them, and encode the ops back to a JSON
+/// array. Malformed input decodes to an empty marker list (treated as "no
+/// markers").
+pub fn diff_dynamic(prev: Dynamic, next: Dynamic) -> String {
+  let ops = diff(decode_scene(prev), decode_scene(next))
   json.to_string(json.array(ops, encode_op))
+}
+
+/// Encode a marker list as the `{markers:[...]}` scene the `scene` DOM property
+/// carries — the inverse of the decode in [`diff_dynamic`](#diff_dynamic), kept
+/// here beside it so the wire shape lives in one place. `maplibre.map` calls
+/// this with the markers from its public `Scene`.
+pub fn encode_scene(markers: List(Entry)) -> Json {
+  json.object([#("markers", json.array(markers, encode_entry))])
+}
+
+fn encode_entry(entry: Entry) -> Json {
+  json.object([
+    #("key", json.string(entry.key)),
+    #("lng", json.float(entry.lng)),
+    #("lat", json.float(entry.lat)),
+    #("html", json.string(entry.html)),
+  ])
 }
 
 fn index(entries: List(Entry)) -> Dict(String, Entry) {
@@ -95,7 +124,14 @@ fn index(entries: List(Entry)) -> Dict(String, Entry) {
   })
 }
 
-fn decode_entries(input: String) -> List(Entry) {
+fn decode_scene(value: Dynamic) -> List(Entry) {
+  case decode.run(value, scene_decoder()) {
+    Ok(entries) -> entries
+    Error(_) -> []
+  }
+}
+
+fn scene_decoder() -> decode.Decoder(List(Entry)) {
   let entry_decoder = {
     use key <- decode.field("key", decode.string)
     use lng <- decode.field("lng", decode.float)
@@ -103,14 +139,8 @@ fn decode_entries(input: String) -> List(Entry) {
     use html <- decode.field("html", decode.string)
     decode.success(Entry(key:, lng:, lat:, html:))
   }
-  let scene_decoder = {
-    use markers <- decode.field("markers", decode.list(entry_decoder))
-    decode.success(markers)
-  }
-  case json.parse(input, scene_decoder) {
-    Ok(entries) -> entries
-    Error(_) -> []
-  }
+  use markers <- decode.field("markers", decode.list(entry_decoder))
+  decode.success(markers)
 }
 
 fn encode_op(op: Op) -> Json {

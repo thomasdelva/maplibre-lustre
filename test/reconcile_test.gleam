@@ -1,7 +1,8 @@
+import gleam/dynamic.{type Dynamic}
+import gleam/dynamic/decode
+import gleam/json
 import gleeunit/should
-import maplibre/reconcile.{
-  Add, Entry, Move, Remove, SetHtml, diff, diff_json,
-}
+import maplibre/reconcile.{Add, Entry, Move, Remove, SetHtml, diff, diff_dynamic}
 
 // Fixtures. `a_moved`/`a_rehtml`/`a_both` share key "a" with `a` but change one
 // or both mutable fields, so the diff has to tell move from set_html.
@@ -71,11 +72,37 @@ pub fn mixed_test() {
   ])
 }
 
-pub fn diff_json_round_trip_test() {
-  // The JSON contract the JS shell relies on: scene-shaped input in, ops JSON
-  // array out, with object keys in declaration order.
-  let prev = "{\"markers\":[{\"key\":\"a\",\"lng\":1.0,\"lat\":2.0,\"html\":\"x\"}]}"
-  let next = "{\"markers\":[{\"key\":\"a\",\"lng\":9.0,\"lat\":9.0,\"html\":\"x\"}]}"
-  diff_json(prev, next)
+pub fn diff_dynamic_round_trip_test() {
+  // The contract the JS shell relies on: scene-shaped objects in (the `scene`
+  // property, here built by parsing JSON to a `Dynamic` the way the runtime
+  // holds it), ops JSON array out, with object keys in declaration order.
+  let prev =
+    scene(
+      "{\"markers\":[{\"key\":\"a\",\"lng\":1.0,\"lat\":2.0,\"html\":\"x\"}]}",
+    )
+  let next =
+    scene(
+      "{\"markers\":[{\"key\":\"a\",\"lng\":9.0,\"lat\":9.0,\"html\":\"x\"}]}",
+    )
+  diff_dynamic(prev, next)
   |> should.equal("[{\"op\":\"move\",\"key\":\"a\",\"lng\":9,\"lat\":9}]")
+}
+
+pub fn diff_dynamic_malformed_is_empty_test() {
+  // A scene that doesn't match the expected shape decodes to "no markers", so a
+  // garbage update against a populated map removes everything rather than throws.
+  diff_dynamic(
+    scene(
+      "{\"markers\":[{\"key\":\"a\",\"lng\":1.0,\"lat\":2.0,\"html\":\"x\"}]}",
+    ),
+    scene("{}"),
+  )
+  |> should.equal("[{\"op\":\"remove\",\"key\":\"a\"}]")
+}
+
+// Build a `Dynamic` from a JSON string — the same parsed-object shape the
+// element receives via the `scene` property.
+fn scene(json_string: String) -> Dynamic {
+  let assert Ok(value) = json.parse(json_string, decode.dynamic)
+  value
 }

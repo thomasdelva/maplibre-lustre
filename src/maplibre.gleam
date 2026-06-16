@@ -26,10 +26,12 @@
 
 import gleam/dynamic/decode
 import gleam/json.{type Json}
+import gleam/list
 import lustre/attribute.{type Attribute}
 import lustre/effect.{type Effect}
 import lustre/element.{type Element}
 import lustre/event
+import maplibre/reconcile
 
 /// A longitude/latitude pair, in degrees. Note the field order: MapLibre works
 /// in `[lng, lat]`, and so does this type.
@@ -90,7 +92,11 @@ pub fn map(
     [
       attribute.id(id),
       attribute.attribute("config", json.to_string(encode_config(config))),
-      attribute.attribute("scene", json.to_string(encode_scene(scene))),
+      // The scene crosses as a DOM *property*, not a stringified attribute: on
+      // the JavaScript target a `Json` is already a plain object, so the element
+      // receives it without a `json.to_string`/`JSON.parse` round-trip, and
+      // Lustre re-sets it only when the scene actually changed (structural diff).
+      attribute.property("scene", encode_scene(scene)),
       ..attributes
     ],
     [],
@@ -140,21 +146,20 @@ fn encode_config(config: Config) -> Json {
   ])
 }
 
+// Flatten the public `Scene` into the reconciler's wire rows; `reconcile` owns
+// the JSON shape, so the field names live there, not here.
 fn encode_scene(scene: Scene) -> Json {
-  json.object([
-    #(
-      "markers",
-      json.array(scene.markers, fn(entry) {
-        let #(key, marker) = entry
-        json.object([
-          #("key", json.string(key)),
-          #("lng", json.float(marker.position.lng)),
-          #("lat", json.float(marker.position.lat)),
-          #("html", json.string(marker.html)),
-        ])
-      }),
-    ),
-  ])
+  reconcile.encode_scene(
+    list.map(scene.markers, fn(entry) {
+      let #(key, marker) = entry
+      reconcile.Entry(
+        key:,
+        lng: marker.position.lng,
+        lat: marker.position.lat,
+        html: marker.html,
+      )
+    }),
+  )
 }
 
 @external(javascript, "./maplibre_ffi.mjs", "fitBounds")
