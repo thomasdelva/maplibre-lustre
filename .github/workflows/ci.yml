@@ -28,6 +28,17 @@ jobs:
           otp-version: "27"
           gleam-version: "1.17.0"
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install JS peer deps
+        # The screenshot test module imports `screenshot`, which transitively
+        # imports `linkedom` at load time, so gleeunit can't even load the suite
+        # without the npm peers present — the screenshot tests still *skip* here
+        # (no CHROME_BIN/ODIFF_BIN); they run in screenshots.yml with a browser.
+        run: npm ci
+
       - name: Build the library (JavaScript target)
         run: |
           gleam deps download
@@ -35,7 +46,8 @@ jobs:
 
       - name: Test the library
         # The pure marker reconciler (src/maplibre/reconcile.gleam) under
-        # gleeunit. JS target via gleam.toml; gleeunit runs under Node.
+        # gleeunit. JS target via gleam.toml; gleeunit runs under Node. The
+        # screenshot tests (test/maplibre_screenshot_test.gleam) skip here.
         run: gleam test
 
       - name: Build the demo (JavaScript target)
