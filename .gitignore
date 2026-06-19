@@ -10,3 +10,13 @@ _site/
 
 # Resolved offline; regenerated on each machine from gleam.toml
 manifest.toml
+
+# JS peer deps for the screenshot tests (restored with `npm ci`; the committed
+# package-lock.json pins them).
+node_modules/
+
+# Screenshot-test transients. The committed baselines (test/screenshots/*.png)
+# are kept; the proposals, diffs, and scratch renders are not.
+*.new.png
+*.diff.png
+.screenshot_render.*.html

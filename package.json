@@ -1,0 +1,11 @@
+{
+  "name": "maplibre_lustre",
+  "private": true,
+  "type": "module",
+  "description": "Dev/test-only JS peer deps for maplibre-lustre's screenshot tests: a headless MapLibre GL JS to render against, odiff to diff, and linkedom for template injection. The library itself ships no npm deps (MapLibre is loaded by the host page from a CDN).",
+  "devDependencies": {
+    "linkedom": "^0.18.5",
+    "maplibre-gl": "^5.0.0",
+    "odiff-bin": "^4.3.8"
+  }
+}

@@ -1,0 +1,2 @@
+{ "version": 8, "sources": {},
+  "layers": [ { "id": "bg", "type": "background", "paint": { "background-color": "#cfe8d4" } } ] }

@@ -1,0 +1,31 @@
+# Visual-regression tests for the live <maplibre-map> element, via the reusable
+# workflow from gleam-screenshots. It boots the real element in headless Chrome
+# (SwiftShader WebGL + a settle wait) against a tile-less local style and diffs
+# the result against the committed baselines in test/screenshots/.
+#
+# On a regression it fails and uploads the proposed PNGs + diffs as an artifact;
+# it never overwrites a baseline. To accept an intentional change, add the
+# `accept-screenshots` label to the PR (see screenshots-accept.yml).
+name: screenshots
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  screenshots:
+    uses: thomasdelva/gleam-screenshots/.github/workflows/screenshots.yml@claude/maplibre-screenshot-testing-vy3awu
+    with:
+      gleam-version: "1.17.0"
+      # The harness page imports the compiled element from build/dev/javascript,
+      # so build the library before the tests run.
+      build-command: gleam build --target javascript
+      # WebGL renders need new headless (old headless is gone on recent Chrome).
+      headless: new
+      # Baselines are pixel-pinned to a Chrome build; match the one they were
+      # generated with. SwiftShader is deterministic for a given build.
+      chrome-version: "141.0.7390.37"
+      # A little slack for sub-pixel differences between Chrome builds.
+      threshold: "0.2"

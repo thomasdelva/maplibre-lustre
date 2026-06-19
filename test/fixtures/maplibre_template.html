@@ -1,0 +1,35 @@
+<!doctype html>
+<!--
+  Screenshot-test harness page for the real <maplibre-map> element.
+
+  `screenshot.matches_baseline` mounts the element fragment (produced by
+  `maplibre.map`, with its escaped `config` attribute) into #app, then captures
+  this page with Chrome's SwiftShader WebGL + a settle wait (see the test).
+
+  Paths are RELATIVE to the scratch render Chrome loads, which screenshot writes
+  next to this template (test/fixtures/), so `../../` reaches the repo root:
+    - node_modules/maplibre-gl ........ `npm i` (a dev/test peer dependency)
+    - build/dev/javascript ............ `gleam build --target javascript`
+  The map's `style_url` is `./style.fixture.json` beside this file: a tile-less
+  background-only style, so the render needs no network and is byte-identical
+  run to run. The element's `scene` is a DOM *property*, so it can't ride in the
+  injected HTML; the test emits it as a <script class="scene-for-map"> JSON blob
+  that this page reads back onto the element once it has upgraded.
+-->
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <link rel="stylesheet" href="../../node_modules/maplibre-gl/dist/maplibre-gl.css" />
+    <style>html,body{margin:0}#app,maplibre-map{display:block}</style>
+    <script src="../../node_modules/maplibre-gl/dist/maplibre-gl.js"></script>
+    <script type="module">
+      import "../../build/dev/javascript/maplibre_lustre/maplibre_ffi.mjs";
+      customElements.whenDefined("maplibre-map").then(() => {
+        const json = document.querySelector("script.scene-for-map");
+        const map = document.querySelector("maplibre-map");
+        if (json && map) map.scene = JSON.parse(json.textContent);
+      });
+    </script>
+  </head>
+  <body><div id="app"></div></body>
+</html>

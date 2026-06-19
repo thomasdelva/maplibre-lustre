@@ -78,6 +78,14 @@ instead of re-installing them.
 Until then, CI is the build oracle: `.github/workflows/ci.yml` builds the
 library and demo on every push (GitHub runners can reach `repo.hex.pm`).
 
+> Reachability is **policy-dependent** and has changed over time: in some
+> environments `repo.hex.pm` is reachable, and `gleam deps download` / `gleam
+> build` / `gleam test` then work locally (the `repo.hex.pm` 403 above is the
+> *default* Trusted list, not a hard rule). If a session can reach it, prefer
+> building and running the tests locally over waiting on CI. The npm registry is
+> typically reachable too, which is what makes the screenshot tests' `maplibre-gl`
+> peer installable offline of any CDN.
+
 > Note: manually vendoring the dependency tree from GitHub as path deps is
 > **not** the sanctioned path — the sandbox classifier blocks fetching and
 > compiling arbitrary external repos (untrusted code integration). Prefer the
@@ -110,6 +118,33 @@ cd demo && gleam build --target javascript # build the demo SPA
   browser, push to `main` or run the **CI** workflow manually (Actions → CI →
   Run workflow) on a branch; the `publish` job then deploys the demo to the live
   Pages site.
+
+### Visual regression tests
+
+`test/maplibre_screenshot_test.gleam` boots the **real** `<maplibre-map>` element
+in headless Chrome and pixel-diffs it against a committed baseline, using the
+[`gleam_screenshots`](https://github.com/thomasdelva/gleam-screenshots) git
+dev-dependency. They are hermetic (a tile-less background-only style fixture, so
+no network), deterministic (SwiftShader WebGL + a settle wait), and run on every
+PR via `.github/workflows/screenshots.yml` (a thin caller of the reusable
+workflow). See the README's "Visual regression tests" section for the why.
+
+To run them in a container, on top of the Gleam toolchain you also need Node
+(present at `/opt/node22/bin`), a Chrome/Chromium, and the JS peers:
+
+```sh
+npm install                               # maplibre-gl + odiff + linkedom
+gleam build --target javascript           # the harness page imports the built element
+export CHROME_BIN=/path/to/chrome ODIFF_BIN=node_modules/.bin/odiff
+export SCREENSHOT_HEADLESS=new            # recent Chrome dropped old headless; WebGL needs new
+gleam test                                # without CHROME_BIN/ODIFF_BIN they skip
+```
+
+A Chromium ships with the preinstalled Playwright (look under
+`/opt/pw-browsers/*/chrome-linux/chrome`). Baselines are pixel-pinned to a Chrome
+**build**, so generate/accept them with the same Chrome the CI workflow pins
+(`chrome-version` in the caller); accept intentional changes with
+`SCREENSHOT_ACCEPT=true gleam test` or the `accept-screenshots` PR label.
 
 ## Conventions
 
