@@ -127,7 +127,8 @@ in headless Chrome and pixel-diffs it against a committed baseline, using the
 dev-dependency. They are hermetic (a tile-less background-only style fixture, so
 no network), deterministic (SwiftShader WebGL + a settle wait), and run on every
 PR via `.github/workflows/screenshots.yml` (a thin caller of the reusable
-workflow). See the README's "Visual regression tests" section for the why.
+workflow). See the README's "Visual regression tests" section, and
+`docs/visual-regression-testing.md` for the best-practice reasoning + sources.
 
 To run them in a container, on top of the Gleam toolchain you also need Node
 (present at `/opt/node22/bin`), a Chrome/Chromium, and the JS peers:

@@ -256,6 +256,9 @@ via [`.github/workflows/screenshots.yml`](.github/workflows/screenshots.yml),
 which references the reusable workflow and pins the Chrome version the baselines
 were rendered with.
 
+For the reasoning behind the hermetic, deterministic setup — and references —
+see [`docs/visual-regression-testing.md`](docs/visual-regression-testing.md).
+
 ## Licence
 
 Apache-2.0. See [LICENCE](LICENCE).
