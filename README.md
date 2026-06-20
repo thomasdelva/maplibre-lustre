@@ -242,7 +242,7 @@ They **skip** unless a browser is configured, so plain `gleam test` still runs
 the pure tests. To run them locally:
 
 ```sh
-npm install                              # maplibre-gl + odiff + linkedom (peers)
+npm install                              # maplibre-gl + odiff (peers)
 gleam build --target javascript          # the harness page imports the built element
 export CHROME_BIN=/path/to/chrome-headless-shell ODIFF_BIN=node_modules/.bin/odiff
 gleam test
@@ -252,8 +252,7 @@ Baselines are committed **per platform** (`test/screenshots/*.linux.png`). When 
 change is intentional, accept it with `SCREENSHOT_ACCEPT=true gleam test` locally,
 or by adding the `accept-screenshots` label to the PR. CI runs these on every PR
 via [`.github/workflows/screenshots.yml`](.github/workflows/screenshots.yml),
-which references the reusable workflow and pins the Chrome version the baselines
-were rendered with.
+which installs the `chrome-headless-shell` build the baselines were rendered with.
 
 For the reasoning behind the hermetic, deterministic setup — and references —
 see [`docs/visual-regression-testing.md`](docs/visual-regression-testing.md).
