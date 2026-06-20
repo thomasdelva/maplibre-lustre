@@ -2,19 +2,21 @@
 <!--
   Screenshot-test harness page for the real <maplibre-map> element.
 
-  `screenshot.matches_baseline` mounts the element fragment (produced by
-  `maplibre.map`, with its escaped `config` attribute) into #app, then captures
-  this page with Chrome's SwiftShader WebGL + a settle wait (see the test).
+  The test builds a complete HTML document from this template — injecting the
+  <maplibre-map> fragment (produced by `maplibre.map`, with its escaped `config`
+  attribute) at #app — and captures it with `screenshot.document_matches_baseline`
+  (Chrome's SwiftShader WebGL + a settle wait; see the test).
 
   Paths are RELATIVE to the scratch render Chrome loads, which screenshot writes
-  next to this template (test/fixtures/), so `../../` reaches the repo root:
+  beside the baseline (test/screenshots/), so `../../` reaches the repo root:
     - node_modules/maplibre-gl ........ `npm i` (a dev/test peer dependency)
     - build/dev/javascript ............ `gleam build --target javascript`
-  The map's `style_url` is `./style.fixture.json` beside this file: a tile-less
-  background-only style, so the render needs no network and is byte-identical
-  run to run. The element's `scene` is a DOM *property*, so it can't ride in the
-  injected HTML; the test emits it as a <script class="scene-for-map"> JSON blob
-  that this page reads back onto the element once it has upgraded.
+  The map's `style_url` is `../fixtures/style.fixture.json` (back into this dir
+  from test/screenshots/): a tile-less background-only style, so the render needs
+  no network and is byte-identical run to run. The element's `scene` is a DOM
+  *property*, so it can't ride in the injected HTML; the test emits it as a
+  <script class="scene-for-map"> JSON blob that this page reads back onto the
+  element once it has upgraded.
 -->
 <html>
   <head>
