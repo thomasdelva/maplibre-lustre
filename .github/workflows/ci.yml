@@ -33,10 +33,10 @@ jobs:
           node-version: "22"
 
       - name: Install JS peer deps
-        # The screenshot test module imports `screenshot`, which transitively
-        # imports `linkedom` at load time, so gleeunit can't even load the suite
-        # without the npm peers present — the screenshot tests still *skip* here
-        # (no CHROME_BIN/ODIFF_BIN); they run in screenshots.yml with a browser.
+        # maplibre-gl + odiff-bin (see package.json). The screenshot tests still
+        # *skip* in this job (no CHROME_BIN/ODIFF_BIN) — they run in
+        # screenshots.yml with a browser — but `npm ci` keeps this job's setup
+        # identical and validates the lockfile.
         run: npm ci
 
       - name: Build the library (JavaScript target)

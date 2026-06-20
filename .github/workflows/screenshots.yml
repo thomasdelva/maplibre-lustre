@@ -1,30 +1,80 @@
-# Visual-regression tests for the live <maplibre-map> element, via the reusable
-# workflow from gleam-screenshots. It boots the real element in headless Chrome
-# (SwiftShader WebGL + a settle wait) against a tile-less local style and diffs
-# the result against the committed baselines in test/screenshots/.
+# Visual-regression tests for the live <maplibre-map> element. Boots the real
+# element in headless Chrome (chrome-headless-shell + SwiftShader WebGL and a
+# settle wait) against a tile-less local style and diffs the result against the
+# committed baselines in test/screenshots/, via the `gleam_screenshots` library.
 #
-# On a regression it fails and uploads the proposed PNGs + diffs as an artifact;
-# it never overwrites a baseline. To accept an intentional change, add the
-# `accept-screenshots` label to the PR (see screenshots-accept.yml).
+# Self-contained: gleam_screenshots is a library, not a reusable workflow, so
+# this is just `gleam test` with a browser + odiff on the runner. On a
+# regression it fails and uploads the proposed PNGs + diffs; it never overwrites
+# a baseline. Accepting is folded in: while the `accept-screenshots` label is on
+# the PR, the run renders in accept mode and a label-gated step commits the
+# refreshed baselines and pushes them back. The label stays until removed.
 name: screenshots
 
 on:
   pull_request:
+    types: [opened, synchronize, reopened, labeled]
   push:
     branches: [main]
   workflow_dispatch:
 
 jobs:
   screenshots:
-    uses: thomasdelva/gleam-screenshots/.github/workflows/screenshots.yml@claude/maplibre-screenshot-testing-vy3awu
-    with:
-      gleam-version: "1.17.0"
-      # The harness page imports the compiled element from build/dev/javascript,
-      # so build the library before the tests run.
-      build-command: gleam build --target javascript
-      # Baselines are pixel-pinned to a Chrome build; match the one they were
-      # generated with. SwiftShader is deterministic for a given build. Capture
-      # uses chrome-headless-shell (always headless), so no `headless:` input.
-      chrome-version: "141.0.7390.37"
-      # A little slack for sub-pixel differences between Chrome builds.
-      threshold: "0.2"
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # accept mode pushes the refreshed baselines
+    env:
+      # Accept mode (refresh baselines) whenever the label is on the PR.
+      SCREENSHOT_ACCEPT: ${{ contains(github.event.pull_request.labels.*.name, 'accept-screenshots') }}
+      ODIFF_BIN: node_modules/.bin/odiff
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Head branch (not the merge commit), so accept mode can push back.
+          ref: ${{ github.head_ref || github.ref_name }}
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: "27.1.2"
+          gleam-version: "1.17.0"
+          rebar3-version: "3"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      # JS peers: maplibre-gl (the harness loads it) + odiff-bin (the diff).
+      - run: npm ci
+      - run: gleam deps download
+      # The harness page imports the compiled element from build/dev/javascript.
+      - run: gleam build --target javascript
+      # chrome-headless-shell renders an exact viewport (no letterbox band). It's
+      # a separate download from full Chrome; its install line ends with the path.
+      # Pin the build the baselines were generated against (SwiftShader is
+      # deterministic per build).
+      - name: Install chrome-headless-shell
+        id: chrome
+        run: |
+          line=$(npx -y @puppeteer/browsers install "chrome-headless-shell@141.0.7390.37")
+          echo "path=${line##* }" >> "$GITHUB_OUTPUT"
+      - name: Screenshot tests
+        run: gleam test
+        env:
+          CHROME_BIN: ${{ steps.chrome.outputs.path }}
+      - name: Commit accepted baselines
+        if: ${{ success() && env.SCREENSHOT_ACCEPT == 'true' }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A -- test/screenshots
+          if ! git diff --cached --quiet; then
+            git commit -m "Accept updated screenshots"
+            git push origin "HEAD:${{ github.head_ref }}"
+          fi
+      - name: Upload proposed screenshots and diffs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: screenshot-proposals
+          path: |
+            **/*.new.png
+            **/*.diff.png
+          if-no-files-found: ignore
+          retention-days: 14

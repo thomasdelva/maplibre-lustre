@@ -44,16 +44,16 @@
 import envoy
 import gleam/json
 import gleam/list
+import gleam/string
 import gleeunit/should
 import lustre/attribute
 import lustre/element
 import maplibre.{type Config, type Marker, Centered, Config, LngLat, Marker}
 import maplibre/reconcile
 import screenshot
+import simplifile
 
 const template = "test/fixtures/maplibre_template.html"
-
-const selector = "#app"
 
 // The harness viewport. Small and fixed so the baseline PNGs stay tiny.
 const size = screenshot.ScreenSize(width: 600, height: 400)
@@ -66,7 +66,9 @@ const settle_ms = 12_000
 // map to stable, well-separated screen positions.
 fn config() -> Config {
   Config(
-    style_url: "./style.fixture.json",
+    // Resolved relative to the scratch render, which the library writes next to
+    // the baseline (test/screenshots/), so reach back into test/fixtures/.
+    style_url: "../fixtures/style.fixture.json",
     view: Centered(center: LngLat(lng: 0.0, lat: 0.0), zoom: 2.0),
   )
 }
@@ -104,15 +106,31 @@ pub fn map_with_markers_test() {
 // Render the real element to HTML, capture it through the live-WebGL pipeline,
 // and assert it matches the committed baseline.
 fn matches(name: String, markers: List(#(String, Marker))) -> Nil {
-  screenshot.matches_baseline(
-    content: harness_html(markers),
+  screenshot.document_matches_baseline(
+    document: document(markers),
     baseline: "test/screenshots/" <> name,
-    options: screenshot.options(template:, selector:)
-      |> screenshot.with_size(size)
+    size:,
+    threshold: 0.2,
+    options: screenshot.options()
       |> screenshot.with_webgl
       |> screenshot.with_settle(ms: settle_ms),
   )
   |> should.equal(Ok(screenshot.Match))
+}
+
+// Build the complete HTML document the library screenshots: the harness template
+// (which loads MapLibre GL JS and the compiled element, and reads the scene) with
+// the `<maplibre-map>` fragment injected at its `#app` mount point. We do the
+// injection here — a plain string substitution on a fixture we control — rather
+// than rely on the library, which is view-layer agnostic and only deals in
+// complete documents.
+fn document(markers: List(#(String, Marker))) -> String {
+  let assert Ok(template_html) = simplifile.read(template)
+  string.replace(
+    template_html,
+    each: "<div id=\"app\"></div>",
+    with: "<div id=\"app\">" <> harness_html(markers) <> "</div>",
+  )
 }
 
 // The fragment mounted into the template: the genuine `maplibre.map` element
