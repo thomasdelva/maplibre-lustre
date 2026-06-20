@@ -1,27 +1,39 @@
 name: CI
 
-# One workflow: always build-verify the library and demo; conditionally publish
-# the demo to GitHub Pages. The local Claude Code containers can't reach
-# repo.hex.pm (see CLAUDE.md), so CI is the canonical place the Gleam build is
-# checked.
+# One workflow: build-verify the library + demo, run the full test suite
+# (including the live-map screenshot regression, which needs a browser), and
+# conditionally publish the demo to GitHub Pages. The local Claude Code
+# containers can't reach repo.hex.pm (see CLAUDE.md), so CI is the canonical
+# place the Gleam build is checked.
 on:
   push:
   pull_request:
+    # `labeled` so adding `accept-screenshots` triggers an accept run.
+    types: [opened, synchronize, reopened, labeled]
   workflow_dispatch:
 
-# Least privilege by default; the publish job elevates its own permissions.
+# Least privilege by default; each job elevates only what it needs.
 permissions:
   contents: read
 
 jobs:
   build:
-    # Always: verify the library and demo compile, and check formatting.
+    # Build + verify the library and demo, then run the whole suite — the pure
+    # reconciler tests and the screenshot regression (the latter needs a browser,
+    # so this job installs chrome-headless-shell and points CHROME_BIN at it).
     runs-on: ubuntu-latest
-    concurrency:
-      group: ci-${{ github.ref }}
-      cancel-in-progress: true
+    permissions:
+      contents: write # accept mode pushes the refreshed baselines
+    env:
+      # Accept mode (refresh baselines) whenever the label is on the PR; null-safe
+      # on push/dispatch (no pull_request payload), so a plain run only compares.
+      SCREENSHOT_ACCEPT: ${{ contains(github.event.pull_request.labels.*.name, 'accept-screenshots') }}
+      ODIFF_BIN: node_modules/.bin/odiff
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Head branch (not the merge commit), so accept mode can push back to it.
+          ref: ${{ github.head_ref || github.ref_name }}
 
       - uses: erlef/setup-beam@v1
         with:
@@ -32,23 +44,31 @@ jobs:
         with:
           node-version: "22"
 
-      - name: Install JS peer deps
-        # maplibre-gl + odiff-bin (see package.json). The screenshot tests still
-        # *skip* in this job (no CHROME_BIN/ODIFF_BIN) — they run in
-        # screenshots.yml with a browser — but `npm ci` keeps this job's setup
-        # identical and validates the lockfile.
-        run: npm ci
+      # JS peers: maplibre-gl (the harness loads it) + odiff-bin (the diff).
+      - run: npm ci
 
       - name: Build the library (JavaScript target)
         run: |
           gleam deps download
           gleam build --target javascript
 
+      # chrome-headless-shell renders an exact viewport (no letterbox band). It's
+      # a separate download from full Chrome; its install line ends with the path.
+      # Pin the build the baselines were generated against (SwiftShader is
+      # deterministic per build).
+      - name: Install chrome-headless-shell
+        id: chrome
+        run: |
+          line=$(npx -y @puppeteer/browsers install "chrome-headless-shell@141.0.7390.37")
+          echo "path=${line##* }" >> "$GITHUB_OUTPUT"
+
       - name: Test the library
-        # The pure marker reconciler (src/maplibre/reconcile.gleam) under
-        # gleeunit. JS target via gleam.toml; gleeunit runs under Node. The
-        # screenshot tests (test/maplibre_screenshot_test.gleam) skip here.
+        # The pure marker reconciler plus the live `<maplibre-map>` screenshot
+        # regression (test/maplibre_screenshot_test.gleam) — CHROME_BIN/ODIFF_BIN
+        # are set, so the screenshot tests run rather than skip.
         run: gleam test
+        env:
+          CHROME_BIN: ${{ steps.chrome.outputs.path }}
 
       - name: Build the demo (JavaScript target)
         working-directory: demo
@@ -59,6 +79,28 @@ jobs:
       - name: Check formatting (library + demo)
         if: ${{ always() }}
         run: gleam format --check src demo/src
+
+      - name: Commit accepted baselines
+        if: ${{ success() && env.SCREENSHOT_ACCEPT == 'true' }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A -- test/screenshots
+          if ! git diff --cached --quiet; then
+            git commit -m "Accept updated screenshots"
+            git push origin "HEAD:${{ github.head_ref }}"
+          fi
+
+      - name: Upload proposed screenshots and diffs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: screenshot-proposals
+          path: |
+            **/*.new.png
+            **/*.diff.png
+          if-no-files-found: ignore
+          retention-days: 14
 
   publish:
     # Conditional publish to the single live Pages site: pushes to main, or a

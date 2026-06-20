@@ -126,9 +126,9 @@ in headless Chrome and pixel-diffs it against a committed baseline, using the
 [`gleam_screenshots`](https://github.com/thomasdelva/gleam-screenshots) git
 dev-dependency. They are hermetic (a tile-less background-only style fixture, so
 no network), deterministic (SwiftShader WebGL + a settle wait), and run on every
-PR via `.github/workflows/screenshots.yml` (a self-contained job — it runs
-`gleam test` with a browser + odiff; `gleam_screenshots` is a library, not a
-reusable workflow). See the README's "Visual regression tests" section, and
+PR as part of `.github/workflows/ci.yml` (the `build` job installs a browser +
+odiff and runs `gleam test`; `gleam_screenshots` is a library, not a reusable
+workflow). See the README's "Visual regression tests" section, and
 `docs/visual-regression-testing.md` for the best-practice reasoning + sources.
 
 To run them in a container, on top of the Gleam toolchain you also need Node
@@ -145,9 +145,8 @@ gleam test                                # without CHROME_BIN/ODIFF_BIN they sk
 install chrome-headless-shell@<version>`); a matching one ships with the
 preinstalled Playwright under `/opt/pw-browsers/chromium_headless_shell-*/`.
 Baselines are pixel-pinned to a Chrome **build**, so generate/accept them with
-the same version `.github/workflows/screenshots.yml` pins; accept intentional
-changes with `SCREENSHOT_ACCEPT=true gleam test` or the `accept-screenshots` PR
-label.
+the same version `.github/workflows/ci.yml` pins; accept intentional changes
+with `SCREENSHOT_ACCEPT=true gleam test` or the `accept-screenshots` PR label.
 
 ## Conventions
 
