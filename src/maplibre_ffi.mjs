@@ -32,7 +32,15 @@ function maplibre() {
   return gl;
 }
 
-class MaplibreMap extends HTMLElement {
+// Importing this module must be safe even where there is no DOM — the
+// screenshot tests stringify the element's view under Node, and SSR is the same
+// shape. `class … extends HTMLElement` is evaluated at module load and
+// HTMLElement is browser-only, so under Node we extend a harmless stand-in. The
+// element is still only *registered* in a real browser (the guard at the
+// bottom), and is never instantiated anywhere else.
+const ElementBase = typeof HTMLElement !== "undefined" ? HTMLElement : class {};
+
+class MaplibreMap extends ElementBase {
   static get observedAttributes() {
     return ["config"];
   }
@@ -229,6 +237,8 @@ class MaplibreMap extends HTMLElement {
   }
 }
 
+// Register the element only in a real DOM. Under Node (tests/SSR) customElements
+// is absent, so the module imports cleanly without defining the element.
 if (
   typeof customElements !== "undefined" &&
   !customElements.get("maplibre-map")

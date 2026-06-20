@@ -218,6 +218,45 @@ gleam build --target javascript   # build the library
 cd demo && gleam build --target javascript   # build the demo
 ```
 
+## Visual regression tests
+
+`test/maplibre_screenshot_test.gleam` screenshots the **real** `<maplibre-map>`
+element in headless Chrome and pixel-diffs it against a committed baseline with
+[`gleam_screenshots`](https://github.com/thomasdelva/gleam-screenshots) (a
+dev-only git dependency). It's the one end-to-end check that the element boots,
+parses `config`, creates a MapLibre map, reconciles a `Scene`, and positions the
+HTML markers — everything `reconcile_test` can't reach because it's pure.
+
+Screenshotting a live map is normally flaky (async tiles, network, GPU-dependent
+WebGL); these tests are hermetic and deterministic instead:
+
+- the map's `style_url` is a **tile-less, background-only** style fixture
+  (`test/fixtures/style.fixture.json`), so nothing is fetched — the basemap is a
+  flat colour and the markers (HTML overlays, not WebGL) render on top;
+- WebGL goes through Chrome's **SwiftShader** software rasteriser
+  (`screenshot.with_webgl`), deterministic for a pinned Chrome build;
+- the capture **waits for the map to settle** before grabbing the frame
+  (`screenshot.with_settle`), so it never catches an empty container.
+
+They **skip** unless a browser is configured, so plain `gleam test` still runs
+the pure tests. To run them locally:
+
+```sh
+npm install                              # maplibre-gl + odiff (peers)
+gleam build --target javascript          # the harness page imports the built element
+export CHROME_BIN=/path/to/chrome-headless-shell ODIFF_BIN=node_modules/.bin/odiff
+gleam test
+```
+
+Baselines are committed **per platform** (`test/screenshots/*.linux.png`). When a
+change is intentional, accept it with `SCREENSHOT_ACCEPT=true gleam test` locally,
+or by adding the `accept-screenshots` label to the PR. They run on every PR as
+part of [`.github/workflows/ci.yml`](.github/workflows/ci.yml), which installs
+the `chrome-headless-shell` build the baselines were rendered with.
+
+For the reasoning behind the hermetic, deterministic setup — and references —
+see [`docs/visual-regression-testing.md`](docs/visual-regression-testing.md).
+
 ## Licence
 
 Apache-2.0. See [LICENCE](LICENCE).

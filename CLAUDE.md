@@ -78,6 +78,14 @@ instead of re-installing them.
 Until then, CI is the build oracle: `.github/workflows/ci.yml` builds the
 library and demo on every push (GitHub runners can reach `repo.hex.pm`).
 
+> Reachability is **policy-dependent** and has changed over time: in some
+> environments `repo.hex.pm` is reachable, and `gleam deps download` / `gleam
+> build` / `gleam test` then work locally (the `repo.hex.pm` 403 above is the
+> *default* Trusted list, not a hard rule). If a session can reach it, prefer
+> building and running the tests locally over waiting on CI. The npm registry is
+> typically reachable too, which is what makes the screenshot tests' `maplibre-gl`
+> peer installable offline of any CDN.
+
 > Note: manually vendoring the dependency tree from GitHub as path deps is
 > **not** the sanctioned path — the sandbox classifier blocks fetching and
 > compiling arbitrary external repos (untrusted code integration). Prefer the
@@ -110,6 +118,35 @@ cd demo && gleam build --target javascript # build the demo SPA
   browser, push to `main` or run the **CI** workflow manually (Actions → CI →
   Run workflow) on a branch; the `publish` job then deploys the demo to the live
   Pages site.
+
+### Visual regression tests
+
+`test/maplibre_screenshot_test.gleam` boots the **real** `<maplibre-map>` element
+in headless Chrome and pixel-diffs it against a committed baseline, using the
+[`gleam_screenshots`](https://github.com/thomasdelva/gleam-screenshots) git
+dev-dependency. They are hermetic (a tile-less background-only style fixture, so
+no network), deterministic (SwiftShader WebGL + a settle wait), and run on every
+PR as part of `.github/workflows/ci.yml` (the `build` job installs a browser +
+odiff and runs `gleam test`; `gleam_screenshots` is a library, not a reusable
+workflow). See the README's "Visual regression tests" section, and
+`docs/visual-regression-testing.md` for the best-practice reasoning + sources.
+
+To run them in a container, on top of the Gleam toolchain you also need Node
+(present at `/opt/node22/bin`), a Chrome/Chromium, and the JS peers:
+
+```sh
+npm install                               # maplibre-gl + odiff
+gleam build --target javascript           # the harness page imports the built element
+export CHROME_BIN=/path/to/chrome-headless-shell ODIFF_BIN=node_modules/.bin/odiff
+gleam test                                # without CHROME_BIN/ODIFF_BIN they skip
+```
+
+`CHROME_BIN` is a `chrome-headless-shell` binary (`npx @puppeteer/browsers
+install chrome-headless-shell@<version>`); a matching one ships with the
+preinstalled Playwright under `/opt/pw-browsers/chromium_headless_shell-*/`.
+Baselines are pixel-pinned to a Chrome **build**, so generate/accept them with
+the same version `.github/workflows/ci.yml` pins; accept intentional changes
+with `SCREENSHOT_ACCEPT=true gleam test` or the `accept-screenshots` PR label.
 
 ## Conventions
 
