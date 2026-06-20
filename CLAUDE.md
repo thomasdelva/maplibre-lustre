@@ -136,10 +136,10 @@ To run them in a container, on top of the Gleam toolchain you also need Node
 ```sh
 npm install                               # maplibre-gl + odiff + linkedom
 gleam build --target javascript           # the harness page imports the built element
-export CHROME_BIN=/path/to/chrome ODIFF_BIN=node_modules/.bin/odiff
+export CHROME_BIN=/path/to/chrome-headless-shell ODIFF_BIN=node_modules/.bin/odiff
 gleam test                                # without CHROME_BIN/ODIFF_BIN they skip
-# (gleam_screenshots now captures over CDP with an exact pinned viewport, so
-#  SCREENSHOT_HEADLESS defaults to "new" and the old letterbox band is gone)
+# (gleam_screenshots captures by launching chrome-headless-shell with --screenshot;
+#  it sizes the viewport exactly, so there's no headless letterbox band)
 ```
 
 A Chromium ships with the preinstalled Playwright (look under

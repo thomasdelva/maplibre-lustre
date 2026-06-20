@@ -33,7 +33,7 @@
 //// ```sh
 //// npm i
 //// gleam build --target javascript
-//// export CHROME_BIN=/path/to/chrome ODIFF_BIN=node_modules/.bin/odiff
+//// export CHROME_BIN=/path/to/chrome-headless-shell ODIFF_BIN=node_modules/.bin/odiff
 //// gleam test
 //// ```
 ////

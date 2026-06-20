@@ -244,7 +244,7 @@ the pure tests. To run them locally:
 ```sh
 npm install                              # maplibre-gl + odiff + linkedom (peers)
 gleam build --target javascript          # the harness page imports the built element
-export CHROME_BIN=/path/to/chrome ODIFF_BIN=node_modules/.bin/odiff
+export CHROME_BIN=/path/to/chrome-headless-shell ODIFF_BIN=node_modules/.bin/odiff
 gleam test
 ```
 
