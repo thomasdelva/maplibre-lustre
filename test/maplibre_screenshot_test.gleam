@@ -34,7 +34,6 @@
 //// npm i
 //// gleam build --target javascript
 //// export CHROME_BIN=/path/to/chrome ODIFF_BIN=node_modules/.bin/odiff
-//// export SCREENSHOT_HEADLESS=new   # WebGL renders need new headless
 //// gleam test
 //// ```
 ////
