@@ -23,6 +23,5 @@ jobs:
       accept: true
       gleam-version: "1.17.0"
       build-command: gleam build --target javascript
-      headless: new
       chrome-version: "141.0.7390.37"
       threshold: "0.2"

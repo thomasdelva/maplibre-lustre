@@ -22,10 +22,9 @@ jobs:
       # The harness page imports the compiled element from build/dev/javascript,
       # so build the library before the tests run.
       build-command: gleam build --target javascript
-      # WebGL renders need new headless (old headless is gone on recent Chrome).
-      headless: new
       # Baselines are pixel-pinned to a Chrome build; match the one they were
-      # generated with. SwiftShader is deterministic for a given build.
+      # generated with. SwiftShader is deterministic for a given build. Capture
+      # uses chrome-headless-shell (always headless), so no `headless:` input.
       chrome-version: "141.0.7390.37"
       # A little slack for sub-pixel differences between Chrome builds.
       threshold: "0.2"
