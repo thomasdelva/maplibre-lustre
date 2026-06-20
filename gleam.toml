@@ -14,4 +14,4 @@ lustre = ">= 5.0.0 and < 6.0.0"
 gleeunit = ">= 1.0.0 and < 2.0.0"
 envoy = ">= 1.2.0 and < 2.0.0"
 simplifile = ">= 2.4.0 and < 3.0.0"
-gleam_screenshots = { git = "https://github.com/thomasdelva/gleam-screenshots.git", ref = "claude/maplibre-screenshot-testing-vy3awu" }
+gleam_screenshots = { git = "https://github.com/thomasdelva/gleam-screenshots.git", ref = "main" }
